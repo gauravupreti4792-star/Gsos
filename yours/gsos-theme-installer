@@ -1,0 +1,137 @@
+#!/usr/bin/env bash
+# GSP OS macOS-style theme installer.
+# Installs the WhiteSur KDE theme, GTK theme, icons and cursors (open-source, by vinceliuice)
+# and can apply them to the current Plasma session.
+#
+#   gsos-theme-installer --apply            per-user install + apply (run as your normal user)
+#   gsos-theme-installer --apply-only       apply already-installed themes
+#   sudo gsos-theme-installer --system      system-wide install (used by the ISO build)
+set -Eeuo pipefail
+
+BASE_URL="https://github.com/vinceliuice"
+VARIANT=dark
+DO_GTK=1
+SYSTEM=0
+APPLY=0
+APPLY_ONLY=0
+
+log(){ printf '[GSOS-THEME] %s\n' "$*"; }
+warn(){ printf '[GSOS-THEME WARNING] %s\n' "$*" >&2; }
+die(){ printf '[GSOS-THEME ERROR] %s\n' "$*" >&2; exit 1; }
+
+usage() {
+  cat <<'EOF'
+Usage: gsos-theme-installer [--dark|--light] [--no-gtk] [--apply | --apply-only | --system]
+
+  --dark / --light   Theme variant to apply (default: dark)
+  --no-gtk           Skip the GTK theme (needs sassc; saves time on low-end PCs)
+  --apply            After a per-user install, apply the theme to this Plasma session
+  --apply-only       Do not download anything; just apply installed WhiteSur themes
+  --system           System-wide install (run as root; no theme is applied)
+EOF
+}
+
+while (($#)); do
+  case "$1" in
+    --dark) VARIANT=dark ;;
+    --light) VARIANT=light ;;
+    --no-gtk) DO_GTK=0 ;;
+    --apply) APPLY=1 ;;
+    --apply-only) APPLY_ONLY=1; APPLY=1 ;;
+    --system) SYSTEM=1 ;;
+    -h|--help) usage; exit 0 ;;
+    *) usage; die "Unknown option: $1" ;;
+  esac
+  shift
+done
+
+if (( SYSTEM )); then
+  [[ $EUID -eq 0 ]] || die "--system must run as root."
+elif (( EUID == 0 )); then
+  die "Run as your normal user (per-user install), or use --system for a system-wide install."
+fi
+
+install_repo() {
+  local name="$1" dir="$WORK/$1"
+  log "Downloading $name…"
+  git clone --depth 1 "$BASE_URL/$name.git" "$dir" || { warn "Could not download $name (network?)."; return 1; }
+  log "Installing $name…"
+  ( cd "$dir" && ./install.sh ) || { warn "$name installer failed."; return 1; }
+}
+
+do_install() {
+  command -v git >/dev/null 2>&1 || die "git is required."
+  WORK="$(mktemp -d)"
+  trap 'rm -rf "$WORK"' EXIT
+  local failed=0
+  install_repo WhiteSur-kde || failed=1
+  install_repo WhiteSur-icon-theme || failed=1
+  install_repo WhiteSur-cursors || failed=1
+  if (( DO_GTK )); then
+    if command -v sassc >/dev/null 2>&1; then
+      install_repo WhiteSur-gtk-theme || failed=1
+    else
+      warn "sassc not found; skipping GTK theme (install sassc, or pass --no-gtk to silence this)."
+    fi
+  fi
+  (( failed == 0 )) || warn "Some parts failed; see messages above."
+}
+
+list_laf() {
+  if command -v plasma-apply-lookandfeel >/dev/null 2>&1; then
+    plasma-apply-lookandfeel --list 2>/dev/null || true
+  elif command -v lookandfeeltool >/dev/null 2>&1; then
+    lookandfeeltool -l 2>/dev/null || true
+  fi
+}
+
+theme_dir_exists() {
+  [[ -d "$HOME/.local/share/icons/$1" || -d "/usr/share/icons/$1" ]]
+}
+
+apply_theme() {
+  local ids laf icon kw
+  kw="$(command -v kwriteconfig6 || command -v kwriteconfig5 || true)"
+  ids="$(list_laf | grep -oE '[A-Za-z0-9._-]*WhiteSur[A-Za-z0-9._-]*' | sort -u || true)"
+  if [[ "$VARIANT" == dark ]]; then
+    laf="$(grep -i dark <<<"$ids" | head -n1 || true)"
+  else
+    laf="$(grep -iv dark <<<"$ids" | head -n1 || true)"
+  fi
+  [[ -n "$laf" ]] || laf="$(head -n1 <<<"$ids" || true)"
+
+  if [[ -z "$laf" ]]; then
+    warn "No WhiteSur Plasma global theme found. Choose it in System Settings > Appearance."
+  elif command -v plasma-apply-lookandfeel >/dev/null 2>&1; then
+    plasma-apply-lookandfeel -a "$laf" && log "Applied global theme: $laf" || warn "Could not apply $laf."
+  else
+    lookandfeeltool -a "$laf" && log "Applied global theme: $laf" || warn "Could not apply $laf."
+  fi
+
+  icon=WhiteSur; [[ "$VARIANT" == dark ]] && icon=WhiteSur-dark
+  if [[ -n "$kw" ]] && theme_dir_exists "$icon"; then
+    "$kw" --file kdeglobals --group Icons --key Theme "$icon" && log "Icon theme: $icon"
+  fi
+  if theme_dir_exists WhiteSur-cursors && command -v plasma-apply-cursortheme >/dev/null 2>&1; then
+    plasma-apply-cursortheme WhiteSur-cursors >/dev/null 2>&1 && log "Cursor theme: WhiteSur-cursors"
+  fi
+}
+
+print_manual_steps() {
+  cat <<'EOF'
+
+Finish the macOS layout (one-time, about 2 minutes):
+  1. Right-click the bottom panel > Enter Edit Mode > set it to a floating, centered,
+     "Dodge windows" panel; keep only "Icons-Only Task Manager" for the dock look.
+  2. Add a thin panel at the top (full width) with: Application Launcher, "Global Menu",
+     spacer, System Tray, Digital Clock.
+  3. System Settings > Window Management > Desktop Effects: Blur is handled by the
+     GSP Performance Manager (Liquid profile). Leave it off on Lite/Smooth.
+  4. Optional font: install "Inter" and select it in System Settings > Fonts.
+EOF
+}
+
+if (( ! APPLY_ONLY )); then do_install; fi
+if (( APPLY && ! SYSTEM )); then apply_theme; fi
+if (( ! SYSTEM )); then print_manual_steps; fi
+log "Done."

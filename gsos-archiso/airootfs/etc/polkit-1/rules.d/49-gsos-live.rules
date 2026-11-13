@@ -1,0 +1,7 @@
+// Live session only: the "liveuser" account may run pkexec without a password
+// (needed so the Performance widget and first-login setup work on the live ISO).
+polkit.addRule(function(action, subject) {
+    if (subject.user == "liveuser" && action.id == "org.freedesktop.policykit.exec") {
+        return polkit.Result.YES;
+    }
+});

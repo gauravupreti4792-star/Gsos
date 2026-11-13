@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=GSOS First Login Setup
+Comment=Applies the hardware profile, macOS theme and dock layout once per user
+Exec=/usr/local/bin/gsos-first-login.sh
+Icon=preferences-system
+Terminal=false
+X-KDE-autostart-phase=2
+X-GNOME-Autostart-enabled=true
+NoDisplay=true

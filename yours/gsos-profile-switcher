@@ -1,0 +1,293 @@
+#!/usr/bin/env bash
+# GSP OS Adaptive Profile Manager backend (v1.1.0)
+set -Eeuo pipefail
+
+STATE_DIR="/var/lib/gsos"
+CONFIG_DIR="/etc/gsos"
+ZRAM_CONF="/etc/systemd/zram-generator.conf"
+PROFILE_FILE="$STATE_DIR/profile"
+BACKUP_DIR="$STATE_DIR/backups"
+PROFILE=""
+PULL_MODEL=0
+KEEP_DISK_SWAP=0
+
+log(){ printf '[GSOS] %s\n' "$*"; }
+warn(){ printf '[GSOS WARNING] %s\n' "$*" >&2; }
+die(){ printf '[GSOS ERROR] %s\n' "$*" >&2; exit 1; }
+
+usage() {
+  cat <<'EOF'
+Usage:
+  gsos-profile-switcher --detect
+  gsos-profile-switcher --profile auto|lite|smooth|balanced|liquid [options]
+  gsos-profile-switcher --restore-swap
+
+Options:
+  --pull-model       Pull the selected Ollama model if Ollama is installed.
+  --keep-disk-swap   Do not disable disk swap in /etc/fstab (keeps hibernation working).
+  --restore-swap     Restore the original /etc/fstab saved by this tool.
+EOF
+}
+
+detect_ram_kib() { awk '/MemTotal:/ {print $2; exit}' /proc/meminfo; }
+
+# MemTotal is lower than the installed RAM (firmware/kernel reserve some), so
+# round UP to the nominal size: ~7.6 GiB reported => an 8 GiB machine.
+nominal_gib() { echo $(( ($1 + 1048575) / 1048576 )); }
+
+detect_gpu() {
+  local renderer=""
+  if command -v glxinfo >/dev/null 2>&1; then
+    renderer="$(glxinfo -B 2>/dev/null | awk -F: '/OpenGL renderer string/ {sub(/^[ \t]+/,"",$2); print $2; exit}' || true)"
+  fi
+  if [[ -n "$renderer" ]] && ! grep -Eqi 'llvmpipe|softpipe|software rasterizer' <<<"$renderer"; then
+    printf 'hardware|%s\n' "$renderer"
+  else
+    printf 'unknown-or-software|%s\n' "${renderer:-not-detected}"
+  fi
+}
+
+choose_profile() {
+  local gib="$1" gpu_class="$2"
+  if (( gib <= 4 )); then
+    echo lite
+  elif (( gib <= 6 )); then
+    echo smooth
+  elif (( gib >= 8 )) && [[ "$gpu_class" == hardware ]]; then
+    echo liquid
+  else
+    echo balanced
+  fi
+}
+
+detect_user() {
+  local uid="${PKEXEC_UID:-${SUDO_UID:-}}"
+  if [[ -n "$uid" && "$uid" != 0 ]]; then
+    getent passwd "$uid" | cut -d: -f1
+    return
+  fi
+  # Fallback: first active graphical session.
+  loginctl list-sessions --no-legend 2>/dev/null |
+    while read -r sid uid _; do
+      [[ "$uid" =~ ^[0-9]+$ ]] || continue
+      if loginctl show-session "$sid" -p Type --value 2>/dev/null | grep -Eq 'wayland|x11'; then
+        getent passwd "$uid" | cut -d: -f1
+        break
+      fi
+    done
+}
+
+run_as_user() {
+  local username="$1"; shift
+  local home
+  home="$(getent passwd "$username" | cut -d: -f6)"
+  if command -v runuser >/dev/null 2>&1; then
+    runuser -u "$username" -- env HOME="$home" USER="$username" "$@"
+  else
+    su -s /bin/sh "$username" -c "$(printf '%q ' "$@")"
+  fi
+}
+
+write_kde_setting() {
+  local username="$1" file="$2" group="$3" key="$4" value="$5"
+  local home kw
+  home="$(getent passwd "$username" | cut -d: -f6)"
+  kw="$(command -v kwriteconfig6 || command -v kwriteconfig5 || true)"
+  [[ -n "$kw" ]] || { warn "kwriteconfig not found; skipped $key"; return 0; }
+  install -d -o "$username" -g "$(id -gn "$username")" "$home/.config"
+  "$kw" --file "$home/.config/$file" --group "$group" --key "$key" "$value"
+  chown "$username:$(id -gn "$username")" "$home/.config/$file"
+}
+
+apply_kde_profile() {
+  local username="$1" profile="$2"
+  case "$profile" in
+    lite)
+      # Everything that costs GPU/CPU is off; animations are instant.
+      write_kde_setting "$username" kwinrc Plugins blurEnabled false
+      write_kde_setting "$username" kwinrc Plugins contrastEnabled false
+      write_kde_setting "$username" kwinrc Plugins wobblywindowsEnabled false
+      write_kde_setting "$username" kwinrc Plugins magiclampEnabled false
+      write_kde_setting "$username" kdeglobals KDE AnimationDurationFactor 0
+      ;;
+    smooth)
+      write_kde_setting "$username" kwinrc Plugins blurEnabled false
+      write_kde_setting "$username" kdeglobals KDE AnimationDurationFactor 0.6
+      ;;
+    balanced)
+      write_kde_setting "$username" kwinrc Plugins blurEnabled false
+      write_kde_setting "$username" kdeglobals KDE AnimationDurationFactor 0.85
+      ;;
+    liquid)
+      write_kde_setting "$username" kwinrc Plugins blurEnabled true
+      write_kde_setting "$username" kwinrc Plugins contrastEnabled true
+      write_kde_setting "$username" kdeglobals KDE AnimationDurationFactor 0.7
+      ;;
+  esac
+}
+
+# Ask the running KWin to re-read its config so effects change without a re-login.
+reload_kwin() {
+  local username="$1" uid bus
+  command -v dbus-send >/dev/null 2>&1 || { log "dbus-send not found; effects apply at next login."; return 0; }
+  uid="$(id -u "$username")"
+  bus="/run/user/$uid/bus"
+  [[ -S "$bus" ]] || { log "No running desktop session; effects apply at next login."; return 0; }
+  run_as_user "$username" env DBUS_SESSION_BUS_ADDRESS="unix:path=$bus" \
+    dbus-send --session --dest=org.kde.KWin /KWin org.kde.KWin.reconfigure >/dev/null 2>&1 \
+    && log "KWin reloaded." || warn "Could not reload KWin; effects apply at next login."
+}
+
+configure_baloo() {
+  local username="$1" profile="$2" ctl=""
+  ctl="$(command -v balooctl6 || command -v balooctl || true)"
+  [[ -n "$ctl" ]] || { log "Baloo CLI not installed; skipping."; return; }
+
+  if [[ "$profile" == lite || "$profile" == smooth || "$profile" == balanced ]]; then
+    if [[ ! -f "$STATE_DIR/baloo-original-state" ]]; then
+      if run_as_user "$username" "$ctl" status 2>&1 | grep -Eqi 'indexing is enabled|enabled'; then
+        echo enabled > "$STATE_DIR/baloo-original-state"
+      else
+        echo disabled > "$STATE_DIR/baloo-original-state"
+      fi
+    fi
+    run_as_user "$username" "$ctl" disable || warn "Could not disable Baloo for $username"
+    log "Baloo indexing disabled (light profile)."
+  elif [[ "$profile" == liquid && -f "$STATE_DIR/baloo-original-state" ]] &&
+       grep -qx enabled "$STATE_DIR/baloo-original-state"; then
+    run_as_user "$username" "$ctl" enable || warn "Could not restore Baloo."
+    log "Restored Baloo because it was enabled before GSOS tuning."
+  fi
+}
+
+configure_zram() {
+  [[ -f "$ZRAM_CONF" ]] && cp -a "$ZRAM_CONF" "$BACKUP_DIR/zram-generator.conf.$(date +%s)"
+  cat > "$ZRAM_CONF" <<'EOF'
+[zram0]
+zram-size = ram / 2
+compression-algorithm = zstd
+swap-priority = 100
+EOF
+  systemctl daemon-reload
+  log "Configured zram-generator: zstd, 50% RAM. Reboot to apply."
+}
+
+disable_disk_swap_safely() {
+  # Preserve original fstab exactly once. Only fstab swap entries are disabled;
+  # active swap is turned off before editing. zram is not touched.
+  if [[ -f /etc/fstab && ! -f "$STATE_DIR/fstab.original" ]]; then
+    cp -a /etc/fstab "$STATE_DIR/fstab.original"
+  fi
+  if [[ -r /proc/swaps ]]; then
+    while read -r device _; do
+      [[ "$device" == Filename || "$device" == /dev/zram* ]] && continue
+      swapoff "$device" || die "Could not turn off $device. No fstab changes made."
+    done < <(tail -n +2 /proc/swaps)
+  fi
+  if [[ -f /etc/fstab ]]; then
+    sed -i -E '/^[[:space:]]*#/! { /[[:space:]]swap[[:space:]]/s/^/# GSOS-DISABLED: /; }' /etc/fstab
+  fi
+  log "Traditional fstab swap disabled (hibernation will not work); original saved at $STATE_DIR/fstab.original."
+}
+
+restore_swap() {
+  [[ -f "$STATE_DIR/fstab.original" ]] || die "No saved fstab found."
+  cp -a "$STATE_DIR/fstab.original" /etc/fstab
+  log "Original /etc/fstab restored. Reboot or run swapon -a as appropriate."
+}
+
+configure_model() {
+  local profile="$1" model
+  case "$profile" in
+    lite) model="none" ;;
+    smooth|balanced) model="qwen3.5:0.8b" ;;
+    liquid) model="qwen3:8b" ;;
+    *) return ;;
+  esac
+  install -d "$CONFIG_DIR"
+  printf '%s\n' "$model" > "$CONFIG_DIR/ollama-model"
+  if [[ "$model" == none ]]; then
+    log "GSPI model target: none (Lite profile keeps RAM free)."
+    return
+  fi
+  log "GSPI model target: $model"
+  if (( PULL_MODEL )); then
+    command -v ollama >/dev/null 2>&1 || { warn "Ollama is not installed; model pull skipped."; return; }
+    systemctl start ollama.service 2>/dev/null || true
+    ollama pull "$model" || warn "Ollama pull failed; target model remains recorded."
+  else
+    log "No model downloaded. Re-run with --pull-model to download it."
+  fi
+}
+
+main() {
+  [[ $EUID -eq 0 ]] || die "Run through sudo or pkexec."
+  install -d -m 0755 "$STATE_DIR" "$CONFIG_DIR" "$BACKUP_DIR"
+
+  if [[ "${1:-}" == "--detect" ]]; then
+    local ram gib gpu_class gpu_desc profile
+    ram="$(detect_ram_kib)"
+    gib="$(nominal_gib "$ram")"
+    IFS='|' read -r gpu_class gpu_desc < <(detect_gpu)
+    profile="$(choose_profile "$gib" "$gpu_class")"
+    printf 'RAM_KiB=%s\nRAM_NOMINAL_GiB=%s\nGPU=%s\nPROFILE=%s\n' "$ram" "$gib" "$gpu_desc" "$profile"
+    exit 0
+  fi
+
+  if [[ "${1:-}" == "--restore-swap" ]]; then restore_swap; exit 0; fi
+  [[ "${1:-}" == "--profile" ]] || { usage; exit 2; }
+  [[ -n "${2:-}" ]] || die "--profile needs a value: auto, lite, smooth, balanced or liquid."
+  PROFILE="$2"
+  shift 2
+  while (($#)); do
+    case "$1" in
+      --pull-model) PULL_MODEL=1 ;;
+      --keep-disk-swap) KEEP_DISK_SWAP=1 ;;
+      *) die "Unknown option: $1" ;;
+    esac
+    shift
+  done
+
+  local ram gib gpu_class gpu_desc username home
+  ram="$(detect_ram_kib)"
+  gib="$(nominal_gib "$ram")"
+  IFS='|' read -r gpu_class gpu_desc < <(detect_gpu)
+
+  if [[ "$PROFILE" == auto ]]; then
+    PROFILE="$(choose_profile "$gib" "$gpu_class")"
+  fi
+  case "$PROFILE" in lite|smooth|balanced|liquid) ;; *) die "Profile must be auto, lite, smooth, balanced, or liquid." ;; esac
+
+  # Safety guard: don't let a manual liquid selection force effects on weak hardware.
+  if [[ "$PROFILE" == liquid ]] && (( gib < 8 )); then
+    die "Liquid profile requires at least 8 GiB RAM."
+  fi
+  if [[ "$PROFILE" == liquid && "$gpu_class" != hardware ]]; then
+    die "Liquid profile requires a detected hardware OpenGL renderer. Use auto, smooth or lite."
+  fi
+
+  username="$(detect_user || true)"
+  [[ -n "$username" ]] || die "Could not identify desktop user. Run from the logged-in user's terminal."
+  home="$(getent passwd "$username" | cut -d: -f6)"
+  [[ -d "$home" ]] || die "Home directory not found for $username."
+
+  configure_zram
+  if (( KEEP_DISK_SWAP )); then
+    log "Keeping disk swap entries (--keep-disk-swap)."
+  else
+    disable_disk_swap_safely
+  fi
+
+  apply_kde_profile "$username" "$PROFILE"
+  reload_kwin "$username"
+  configure_baloo "$username" "$PROFILE"
+  configure_model "$PROFILE"
+
+  printf '%s\n' "$PROFILE" > "$PROFILE_FILE"
+  printf '%s\n' "$PROFILE" > "$CONFIG_DIR/performance-profile"
+  log "Applied profile: $PROFILE"
+  log "RAM: $gib GiB (nominal); GPU: $gpu_desc"
+  log "Existing Plasma panels, docks, corner settings and display refresh rate were not modified."
+  log "Reboot recommended for zram-generator changes."
+}
+main "$@"
