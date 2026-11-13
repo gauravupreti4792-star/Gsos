@@ -1,0 +1,25 @@
+name: Build GSOS ISO
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up environment and build ISO
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y arch-install-scripts squashfs-tools genisoimage xorriso
+          cd gsos-archiso
+          chmod +x build.sh
+          sudo ./build.sh
+
+      - name: Upload ISO artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: gsos-iso
+          path: gsos-archiso/*.iso
