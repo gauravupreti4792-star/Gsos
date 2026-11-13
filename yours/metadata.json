@@ -1,0 +1,15 @@
+{
+  "KPlugin": {
+    "Id": "org.gsos.profilemanager",
+    "Name": "GSP Performance Manager",
+    "Description": "Quickly switch GSP OS performance profiles",
+    "Category": "System Information",
+    "Icon": "preferences-system",
+    "Authors": [
+      { "Name": "GSP OS" }
+    ],
+    "Version": "1.1.0",
+    "License": "GPL-3.0-or-later"
+  },
+  "KPackageStructure": "Plasma/Applet"
+}
