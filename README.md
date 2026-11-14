@@ -66,4 +66,10 @@ GSOS was developed with AI assistance (ChatGPT and Claude) and debugged and test
 
 ## License
 
-License to be decided. Until a license file is added, all rights are reserved by the author.
+This project is licensed under the MIT License.
+
+**Important Notice:**  
+This software is provided "AS IS" without any warranty.  
+If any damage, data loss, system failure, or any other problem occurs to your device or data while using or installing GSOS, the author (Gaurav Upreti) will not be liable or responsible in any way.
+
+See the (LICENSE) file for full details.
