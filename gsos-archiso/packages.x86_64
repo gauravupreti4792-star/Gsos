@@ -88,25 +88,18 @@ noto-fonts
 noto-fonts-emoji
 ttf-liberation
 
-# ---- Graphics / GPU (multilib must be enabled, see BUILD_GSOS.md) ----
+# ---- Graphics / GPU ----
 mesa
 mesa-utils
 vulkan-icd-loader
 vulkan-intel
 vulkan-radeon
-lib32-mesa
-lib32-vulkan-icd-loader
-lib32-vulkan-intel
-lib32-vulkan-radeon
 
 # ---- Windows app compatibility (Wine) ----
 wine
 wine-mono
 wine-gecko
 winetricks
-lib32-gnutls
-lib32-alsa-plugins
-lib32-libpulse
 flatpak
 
 # ---- Android apps ----
