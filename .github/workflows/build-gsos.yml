@@ -21,9 +21,16 @@ jobs:
           sudo apt-get clean || true
           df -h /
 
+      - name: Restore cached Calamares build
+        id: cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/localrepo
+          key: gsos-aur-localrepo-v1
+
       - name: Write the in-container build script
         run: |
-          mkdir -p "$RUNNER_TEMP/out"
+          mkdir -p "$RUNNER_TEMP/out" "$RUNNER_TEMP/localrepo"
           cat > "$RUNNER_TEMP/build-in-arch.sh" <<'SCRIPT_EOF'
           #!/usr/bin/env bash
           set -euxo pipefail
@@ -36,8 +43,15 @@ jobs:
           mkdir -p "$OUT" "$WORK" "$BUILD"
 
           # ---------- 1) Prepare Arch ----------
+          # Containers block Landlock, which pacman's download sandbox needs.
           sed -i '/^\[options\]/a DisableSandbox' /etc/pacman.conf
-          sed -i '/^#\[multilib\]/,/^#Include/ s/^#//' /etc/pacman.conf
+          # Turn multilib on (uncomment it, or add it if the file has no such section).
+          enable_multilib() {
+            sed -i '/^#\[multilib\]/,/^#Include/ s/^#//' "$1"
+            grep -q '^\[multilib\]' "$1" || printf '\n[multilib]\nInclude = /etc/pacman.d/mirrorlist\n' >> "$1"
+            grep -n -A1 '^\[multilib\]' "$1"
+          }
+          enable_multilib /etc/pacman.conf
           pacman-key --init
           pacman-key --populate archlinux
           pacman -Syu --noconfirm --needed archiso base-devel git sudo
@@ -68,12 +82,19 @@ jobs:
             local p="$1"
             sudo -H -u builder bash -c "set -euxo pipefail; mkdir -p ~/aur && cd ~/aur && rm -rf '$p' && git clone --depth 1 'https://aur.archlinux.org/$p.git' && cd '$p' && MAKEFLAGS='-j$(nproc)' makepkg -si --noconfirm --needed && cp -f ./*.pkg.tar.zst $LOCALREPO/"
           }
-          for p in ckbcomp calamares; do aur_build "$p"; done
+          for p in ckbcomp calamares; do
+            if ls "$LOCALREPO/$p"-[0-9]*.pkg.tar.zst >/dev/null 2>&1; then
+              echo "Using cached build of $p"
+            else
+              aur_build "$p"
+            fi
+          done
           repo-add "$LOCALREPO/gsos-local.db.tar.gz" "$LOCALREPO"/*.pkg.tar.zst
 
           printf '\n[gsos-local]\nSigLevel = Optional TrustAll\nServer = file://%s\n' "$LOCALREPO" >> /etc/pacman.conf
           pacman -Sy
 
+          # Any other package from packages.x86_64 that is not in the repos gets built from the AUR automatically.
           list_missing() {
             grep -v '^[[:space:]]*#' "$PKG_FILE" | awk 'NF{print $1}' | while read -r p; do
               pacman -Si "$p" >/dev/null 2>&1 || echo "$p"
@@ -102,16 +123,19 @@ jobs:
           install -Dm644 "$META" "$A/usr/share/plasma/plasmoids/org.gsos.profilemanager/metadata.json"
           [ -z "$DESK" ] || install -Dm644 "$DESK" "$A/usr/share/applications/org.gsos.profilemanager.desktop"
 
+          # Windows line endings break shell scripts; strip them everywhere.
           find "$A" -type f \( -name '*.sh' -o -name '*.conf' -o -name '*.desktop' -o -name '*.rules' \
             -o -name '*.preset' -o -name '*.qml' -o -name '*.json' -o -path '*/usr/local/bin/*' \) \
             -exec sed -i 's/\r$//' {} +
           sed -i 's/\r$//' "$P/packages.x86_64"
 
+          # linux-zen kernel (Waydroid needs binder)
           rm -f "$A/etc/mkinitcpio.d/linux.preset"
           grep -rl 'vmlinuz-linux\|initramfs-linux' "$P/syslinux" "$P/grub" "$P/efiboot" 2>/dev/null \
             | xargs -r sed -i 's/vmlinuz-linux\b/vmlinuz-linux-zen/g; s/initramfs-linux\.img/initramfs-linux-zen.img/g'
 
-          sed -i '/^#\[multilib\]/,/^#Include/ s/^#//' "$P/pacman.conf"
+          # multilib, local repo and no download sandbox for the profile's own pacman.conf
+          enable_multilib "$P/pacman.conf"
           sed -i '/^\[options\]/a DisableSandbox' "$P/pacman.conf"
           printf '\n[gsos-local]\nSigLevel = Optional TrustAll\nServer = file://%s\n' "$LOCALREPO" >> "$P/pacman.conf"
 
@@ -133,8 +157,16 @@ jobs:
           docker run --rm --privileged \
             -v "${{ github.workspace }}":/repo:ro \
             -v "${{ runner.temp }}/out":/out \
+            -v "${{ runner.temp }}/localrepo":/opt/gsos-localrepo \
             -v "${{ runner.temp }}/build-in-arch.sh":/build-in-arch.sh:ro \
             archlinux:latest bash /build-in-arch.sh
+
+      - name: Save Calamares build to the cache
+        if: always() && steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/localrepo
+          key: gsos-aur-localrepo-v1
 
       - name: Upload the ISO
         uses: actions/upload-artifact@v4
@@ -154,4 +186,3 @@ jobs:
           name: build-log
           path: ${{ runner.temp }}/out/build.log
           if-no-files-found: ignore
-        
