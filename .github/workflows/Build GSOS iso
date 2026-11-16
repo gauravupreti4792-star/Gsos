@@ -1,0 +1,207 @@
+name: Build GSOS ISO
+
+# Run it by hand: GitHub > Actions > "Build GSOS ISO" > Run workflow.
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Free up disk space on the runner
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/share/boost \
+            /opt/hostedtoolcache/CodeQL /usr/share/swift /usr/local/.ghcup /usr/local/share/powershell || true
+          sudo docker image prune --all --force || true
+          sudo apt-get clean || true
+          df -h /
+
+      - name: Restore cached Calamares build
+        id: cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/localrepo
+          key: gsos-aur-localrepo-v1
+
+      - name: Write the in-container build script
+        run: |
+          mkdir -p "$RUNNER_TEMP/out" "$RUNNER_TEMP/localrepo"
+          cat > "$RUNNER_TEMP/build-in-arch.sh" <<'SCRIPT_EOF'
+          #!/usr/bin/env bash
+          set -euxo pipefail
+
+          REPO=/repo
+          OUT=/out
+          WORK=/work
+          BUILD=/build
+          LOCALREPO=/opt/gsos-localrepo
+          mkdir -p "$OUT" "$WORK" "$BUILD"
+
+          # ---------- 1) Prepare Arch ----------
+          # Containers block Landlock, which pacman's download sandbox needs.
+          sed -i '/^\[options\]/a DisableSandbox' /etc/pacman.conf
+          # Turn multilib on: drop any existing (commented) multilib block, then add a clean one.
+          enable_multilib() {
+            sed -i '/^#\?\[multilib\]/,/^#\?Include/d' "$1"
+            printf '\n[multilib]\nInclude = /etc/pacman.d/mirrorlist\n' >> "$1"
+          }
+          enable_multilib /etc/pacman.conf
+          pacman-key --init
+          pacman-key --populate archlinux
+          pacman -Syu --noconfirm --needed archiso base-devel git sudo
+
+          # Fail fast (in a minute, not after 15) if the 32-bit repo is not usable.
+          if ! pacman -Si lib32-mesa >/dev/null 2>&1; then
+            echo "::error::multilib is not working in the container (lib32-mesa not found)."
+            tail -n 25 /etc/pacman.conf
+            head -n 5 /etc/pacman.d/mirrorlist
+            pacman -Sl multilib | head -n 3 || true
+            exit 1
+          fi
+
+          useradd -m builder
+          echo 'builder ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/builder
+          chmod 0440 /etc/sudoers.d/builder
+          install -d -o builder -g builder "$LOCALREPO"
+
+          # ---------- 2) Locate your files inside the repo ----------
+          PKG_FILE="$(find "$REPO" -type f -name packages.x86_64 -not -path '*/.git/*' | head -n1 || true)"
+          SWITCHER="$(find "$REPO" -type f -name 'gsos-profile-switcher*' -not -path '*/.git/*' | head -n1 || true)"
+          THEMER="$(find "$REPO" -type f -name 'gsos-theme-installer*' -not -path '*/.git/*' | head -n1 || true)"
+          MENU="$(find "$REPO" -type f -name 'gsos-profile-menu*' -not -path '*/.git/*' | head -n1 || true)"
+          META="$(grep -rl 'org.gsos.profilemanager' --include=metadata.json "$REPO" 2>/dev/null | head -n1 || true)"
+          DESK="$(find "$REPO" -type f -name 'gsos-profile-manager.desktop' -not -path '*/.git/*' | head -n1 || true)"
+
+          fail() { echo "::error::$1"; echo "--- files in the repo ---"; find "$REPO" -not -path '*/.git/*' | head -150; exit 1; }
+          [ -n "$PKG_FILE" ] || fail "packages.x86_64 not found. Upload the UNZIPPED gsos-archiso folder (a .zip file is not unpacked by GitHub)."
+          [ -n "$SWITCHER" ] || fail "gsos-profile-switcher not found in the repo. Upload your script (unzipped)."
+          [ -n "$THEMER" ]   || fail "gsos-theme-installer not found in the repo. Upload your script (unzipped)."
+          [ -n "$META" ]     || fail "plasmoid metadata.json (with org.gsos.profilemanager) not found in the repo."
+          SRC_PROFILE="$(dirname "$PKG_FILE")"
+          echo "profile: $SRC_PROFILE | switcher: $SWITCHER | theme: $THEMER"
+
+          # ---------- 3) Build Calamares (not in official repos) into a local repo ----------
+          aur_build() {
+            local p="$1"
+            sudo -H -u builder bash -c "set -euxo pipefail; mkdir -p ~/aur && cd ~/aur && rm -rf '$p' && git clone --depth 1 'https://aur.archlinux.org/$p.git' && cd '$p' && MAKEFLAGS='-j$(nproc)' makepkg -si --noconfirm --needed && cp -f ./*.pkg.tar.zst $LOCALREPO/"
+          }
+          for p in ckbcomp calamares; do
+            if ls "$LOCALREPO/$p"-[0-9]*.pkg.tar.zst >/dev/null 2>&1; then
+              echo "Using cached build of $p"
+            else
+              aur_build "$p"
+            fi
+          done
+          repo-add "$LOCALREPO/gsos-local.db.tar.gz" "$LOCALREPO"/*.pkg.tar.zst
+
+          printf '\n[gsos-local]\nSigLevel = Optional TrustAll\nServer = file://%s\n' "$LOCALREPO" >> /etc/pacman.conf
+          pacman -Sy
+
+          # Any other package from packages.x86_64 that is not in the repos gets built from the AUR automatically.
+          list_missing() {
+            grep -v '^[[:space:]]*#' "$PKG_FILE" | awk 'NF{print $1}' | while read -r p; do
+              pacman -Si "$p" >/dev/null 2>&1 || echo "$p"
+            done
+          }
+          MISSING="$(list_missing || true)"
+          if [ -n "$MISSING" ]; then
+            echo "Not in the repos, trying the AUR: $MISSING"
+            for p in $MISSING; do
+              case "$p" in lib32-*) echo "::warning::$p is not in the multilib repo"; continue ;; esac
+              aur_build "$p" || echo "::warning::AUR build failed for $p"
+            done
+            repo-add "$LOCALREPO/gsos-local.db.tar.gz" "$LOCALREPO"/*.pkg.tar.zst
+            pacman -Sy
+            STILL="$(list_missing || true)"
+            [ -z "$STILL" ] || fail "These packages could not be found or built: $STILL (remove them from packages.x86_64 or fix the names)."
+          fi
+
+          # ---------- 4) Assemble the archiso profile ----------
+          cp -r /usr/share/archiso/configs/releng "$BUILD/gsos-archiso"
+          cp -r "$SRC_PROFILE/." "$BUILD/gsos-archiso/"
+          rm -f "$BUILD/gsos-archiso/BUILD_GSOS.md"
+          P="$BUILD/gsos-archiso"
+          A="$P/airootfs"
+
+          install -Dm755 "$SWITCHER" "$A/usr/local/bin/gsos-profile-switcher"
+          install -Dm755 "$THEMER"   "$A/usr/local/bin/gsos-theme-installer"
+          [ -z "$MENU" ] || install -Dm755 "$MENU" "$A/usr/local/bin/gsos-profile-menu"
+          install -Dm644 "$META" "$A/usr/share/plasma/plasmoids/org.gsos.profilemanager/metadata.json"
+          [ -z "$DESK" ] || install -Dm644 "$DESK" "$A/usr/share/applications/org.gsos.profilemanager.desktop"
+
+          # Windows line endings break shell scripts; strip them everywhere.
+          find "$A" -type f \( -name '*.sh' -o -name '*.conf' -o -name '*.desktop' -o -name '*.rules' \
+            -o -name '*.preset' -o -name '*.qml' -o -name '*.json' -o -path '*/usr/local/bin/*' \) \
+            -exec sed -i 's/\r$//' {} +
+          sed -i 's/\r$//' "$P/packages.x86_64"
+
+          # linux-zen kernel (Waydroid needs binder)
+          rm -f "$A/etc/mkinitcpio.d/linux.preset"
+          grep -rl 'vmlinuz-linux\|initramfs-linux' "$P/syslinux" "$P/grub" "$P/efiboot" 2>/dev/null \
+            | xargs -r sed -i 's/vmlinuz-linux\b/vmlinuz-linux-zen/g; s/initramfs-linux\.img/initramfs-linux-zen.img/g'
+
+          # multilib, local repo and no download sandbox for the profile's own pacman.conf
+          enable_multilib "$P/pacman.conf"
+          sed -i '/^\[options\]/a DisableSandbox' "$P/pacman.conf"
+          printf '\n[gsos-local]\nSigLevel = Optional TrustAll\nServer = file://%s\n' "$LOCALREPO" >> "$P/pacman.conf"
+
+          sed -i 's/^iso_name=.*/iso_name="gsos"/; s/^iso_label=.*/iso_label="GSOS_LIVE"/' "$P/profiledef.sh"
+
+          # Fast compression (zstd instead of xz): far quicker on 2 CPUs; the ISO ends up a bit larger.
+          sed -i "s/^airootfs_image_tool_options=.*/airootfs_image_tool_options=('-comp' 'zstd' '-Xcompression-level' '3' '-b' '1M')/" "$P/profiledef.sh"
+          grep -n 'airootfs_image_tool_options' "$P/profiledef.sh"
+
+          # GSOS name in the boot menu and ISO info instead of "Arch Linux"
+          grep -rl 'Arch Linux' "$P/syslinux" "$P/efiboot" "$P/grub" 2>/dev/null | xargs -r sed -i 's/Arch Linux/GSOS/g'
+          sed -i 's/^iso_application=.*/iso_application="GSOS Live"/; s/^iso_publisher=.*/iso_publisher="GSOS"/' "$P/profiledef.sh"
+
+          # ---------- 5) Build the ISO ----------
+          df -h /
+          mkarchiso -v -w "$WORK" -o "$OUT" "$P" 2>&1 | tee "$OUT/build.log"
+
+          # ---------- 6) Name the result ----------
+          mv "$OUT"/gsos-*.iso "$OUT/GSOS.iso"
+          ( cd "$OUT" && sha256sum GSOS.iso > GSOS.iso.sha256 )
+          chmod -R a+rX "$OUT"
+          ls -lh "$OUT"
+          SCRIPT_EOF
+
+      - name: Build the ISO inside Arch Linux
+        run: |
+          docker run --rm --privileged \
+            -v "${{ github.workspace }}":/repo:ro \
+            -v "${{ runner.temp }}/out":/out \
+            -v "${{ runner.temp }}/localrepo":/opt/gsos-localrepo \
+            -v "${{ runner.temp }}/build-in-arch.sh":/build-in-arch.sh:ro \
+            archlinux:latest bash /build-in-arch.sh
+
+      - name: Save Calamares build to the cache
+        if: always() && steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/localrepo
+          key: gsos-aur-localrepo-v1
+
+      - name: Upload the ISO
+        uses: actions/upload-artifact@v4
+        with:
+          name: GSOS-iso
+          path: |
+            ${{ runner.temp }}/out/GSOS.iso
+            ${{ runner.temp }}/out/GSOS.iso.sha256
+          compression-level: 0
+          retention-days: 7
+          if-no-files-found: error
+
+      - name: Upload the build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: ${{ runner.temp }}/out/build.log
+          if-no-files-found: ignore
