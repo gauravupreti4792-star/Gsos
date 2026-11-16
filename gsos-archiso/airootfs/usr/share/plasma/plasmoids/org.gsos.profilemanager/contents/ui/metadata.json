@@ -1,1 +1,11 @@
-
+{
+  "KPlugin": {
+    "Id": "org.gsos.splash",
+    "Name": "GSOS Splash",
+    "Description": "GSOS startup screen",
+    "Authors": [ { "Name": "Gaurav" } ],
+    "Version": "1.0",
+    "License": "GPL-3.0-or-later"
+  },
+  "KPackageStructure": "Plasma/LookAndFeel"
+}
