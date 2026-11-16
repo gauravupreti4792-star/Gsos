@@ -1,110 +1,82 @@
 #!/usr/bin/env bash
-# GSOS first-login setup. Runs once per user (autostart entry:
-# /etc/xdg/autostart/gsos-first-login.desktop).
-#   1. auto performance profile   2. macOS-style theme + GSOS look defaults
-#   3. top menu bar + floating dock + GSOS wallpaper   4. launches the installer on the live ISO
-set -u
+# Runs inside the airootfs chroot during `mkarchiso` (the file is deleted afterwards).
+# Note: archiso marks customize_airootfs.sh as deprecated but still runs it.
+set -uo pipefail
 
-FLAG="$HOME/.config/gsos/first-login-done"
-LOG="$HOME/.cache/gsos-first-login.log"
-mkdir -p "$(dirname "$FLAG")" "$(dirname "$LOG")"
-[[ -f "$FLAG" ]] && exit 0
-exec >>"$LOG" 2>&1
-echo "=== GSOS first login $(date) ==="
+echo "[GSOS] customize_airootfs.sh starting"
 
-notify() { command -v notify-send >/dev/null 2>&1 && notify-send "GSOS" "$1" || true; }
-is_live() { grep -qw 'archisobasedir' /proc/cmdline 2>/dev/null; }
+# --- Locale / time -------------------------------------------------------
+sed -i 's/^#en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/' /etc/locale.gen
+locale-gen
+echo "LANG=en_US.UTF-8" > /etc/locale.conf
+ln -sf /usr/share/zoneinfo/UTC /etc/localtime
+echo "gsos" > /etc/hostname
 
-QDBUS="$(command -v qdbus6 || command -v qdbus-qt6 || command -v qdbus || true)"
-wait_for_plasma() {
-  [[ -n "$QDBUS" ]] || return 1
-  for _ in $(seq 1 60); do
-    "$QDBUS" org.kde.plasmashell /PlasmaShell >/dev/null 2>&1 && { sleep 4; return 0; }
-    sleep 1
-  done
-  return 1
-}
+# --- Your scripts (copied into airootfs/usr/local/bin by the build) ---
+for f in gsos-profile-switcher gsos-theme-installer gsos-profile-menu gsos-first-login.sh; do
+  if [[ -f "/usr/local/bin/$f" ]]; then
+    chmod 0755 "/usr/local/bin/$f"
+  else
+    echo "[GSOS] WARNING: /usr/local/bin/$f is missing"
+  fi
+done
 
-# --- 1) Performance profile
-if pkexec /usr/local/bin/gsos-profile-switcher --profile auto; then
-  echo "profile: auto applied"
-else
-  echo "profile: auto failed"
-  notify "Open 'GSP Performance Manager' to choose Lite, Smooth, Balanced or Liquid."
+# --- macOS-style theme, installed system-wide ------------------------------
+if [[ -x /usr/local/bin/gsos-theme-installer ]]; then
+  /usr/local/bin/gsos-theme-installer --system || echo "[GSOS] WARNING: theme installer failed; ISO will build without the theme"
 fi
 
-# --- 2) Theme, then GSOS look defaults (applied after the theme so they win)
-/usr/local/bin/gsos-theme-installer --apply-only || echo "theme: apply-only failed"
+# --- GSOS branding: what System Settings > About and the login screens show ---
+cat > /usr/lib/os-release <<'OSR'
+NAME="GSOS"
+PRETTY_NAME="GSOS 1.1 (powered by Linux)"
+ID=gsos
+ID_LIKE=arch
+VERSION="1.1"
+VERSION_ID=1.1
+BUILD_ID=rolling
+ANSI_COLOR="38;2;228;226;221"
+OSR
+ln -sf ../usr/lib/os-release /etc/os-release
+printf 'GSOS \\r (\\l)\n\n' > /etc/issue
 
-KW="$(command -v kwriteconfig6 || true)"
-if [[ -n "$KW" ]]; then
-  # macOS-style window buttons on the LEFT: Close, Minimize, Maximize
-  "$KW" --file kwinrc --group org.kde.kdecoration2 --key ButtonsOnLeft "XIA"
-  "$KW" --file kwinrc --group org.kde.kdecoration2 --key ButtonsOnRight ""
-  # GSOS startup splash
-  "$KW" --file ksplashrc --group KSplash --key Engine KSplashQML
-  "$KW" --file ksplashrc --group KSplash --key Theme org.gsos.splash
-  # GSOS lock screen wallpaper
-  "$KW" --file kscreenlockerrc --group Greeter --group Wallpaper --group org.kde.image --group General \
-        --key Image "file:///usr/share/gsos/wallpaper.jpg"
-  [[ -n "$QDBUS" ]] && "$QDBUS" org.kde.KWin /KWin reconfigure || true
+# --- Installer branding: show "GSOS" instead of "Arch Linux" (only switches if the copy works) ---
+if [[ -d /usr/share/calamares/branding/default && -f /etc/calamares/settings.conf ]]; then
+  mkdir -p /etc/calamares/branding
+  cp -r /usr/share/calamares/branding/default /etc/calamares/branding/gsos
+  sed -i 's/Arch Linux/GSOS/g; s/^componentName:.*/componentName: gsos/' /etc/calamares/branding/gsos/branding.desc
+  sed -i 's/^branding:.*/branding: gsos/' /etc/calamares/settings.conf
 fi
 
-# --- 3) Top menu bar + floating dock (GSOS "G" as the launcher button)
-LAYOUT_JS="$(mktemp --suffix=.js)"
-cat > "$LAYOUT_JS" <<'JS'
-panels().forEach(function (p) { p.remove(); });
-
-var top = new Panel;
-top.location = "top";
-top.height = Math.round(gridUnit * 1.7);
-top.floating = false;
-top.lengthMode = "fill";
-top.hiding = "none";
-var launcher = top.addWidget("org.kde.plasma.kickoff");
-launcher.currentConfigGroup = ["General"];
-launcher.writeConfig("icon", "/usr/share/gsos/gsos-mark.svg");
-top.addWidget("org.kde.plasma.appmenu");
-top.addWidget("org.kde.plasma.panelspacer");
-top.addWidget("org.kde.plasma.systemtray");
-top.addWidget("org.kde.plasma.digitalclock");
-
-var dock = new Panel;
-dock.location = "bottom";
-dock.height = Math.round(gridUnit * 3.4);
-dock.floating = true;
-dock.alignment = "center";
-dock.lengthMode = "fit";
-dock.hiding = "dodgewindows";
-var tasks = dock.addWidget("org.kde.plasma.icontasks");
-tasks.currentConfigGroup = ["General"];
-tasks.writeConfig("launchers", [
-  "applications:org.kde.dolphin.desktop",
-  "applications:firefox.desktop",
-  "applications:org.kde.konsole.desktop",
-  "applications:systemsettings.desktop",
-  "applications:org.gsos.profilemanager.desktop"
-]);
-JS
-
-if wait_for_plasma; then
-  "$QDBUS" org.kde.plasmashell /PlasmaShell org.kde.PlasmaShell.evaluateScript "$(cat "$LAYOUT_JS")" \
-    && echo "layout: applied" || echo "layout: evaluateScript failed"
-  # GSOS wallpaper (after the theme, so it replaces the theme's own wallpaper)
-  command -v plasma-apply-wallpaperimage >/dev/null 2>&1 \
-    && plasma-apply-wallpaperimage /usr/share/gsos/wallpaper.jpg \
-    && echo "wallpaper: applied" || echo "wallpaper: not applied"
-else
-  echo "layout: plasmashell not reachable; skipped"
-  notify "Could not build the dock layout automatically. See ~/.cache/gsos-first-login.log"
+# --- GSOS login screen background (shown on installed systems) ---
+if [[ -d /usr/share/sddm/themes/breeze ]]; then
+  printf '[General]\nbackground=/usr/share/gsos/wallpaper.jpg\ntype=image\n' \
+    > /usr/share/sddm/themes/breeze/theme.conf.user
 fi
-rm -f "$LAYOUT_JS"
 
-touch "$FLAG"
-
-# --- 4) Live ISO only: open the installer
-if is_live && command -v calamares >/dev/null 2>&1; then
-  echo "launching calamares"
-  sudo -n -E calamares >/dev/null 2>&1 &
+# --- Live user + passwordless sudo (live session only) ---------------------
+if ! id liveuser >/dev/null 2>&1; then
+  useradd -m -G wheel,video,audio,input,storage,optical,network -s /bin/bash liveuser
 fi
-exit 0
+passwd -d liveuser
+echo '%wheel ALL=(ALL:ALL) NOPASSWD: ALL' > /etc/sudoers.d/g_wheel
+chmod 0440 /etc/sudoers.d/g_wheel
+
+# Desktop icon for the installer must be executable to be trusted by Plasma.
+install -d -o liveuser -g liveuser /home/liveuser/Desktop
+cp -f /etc/skel/Desktop/install-gsos.desktop /home/liveuser/Desktop/
+chmod 0755 /home/liveuser/Desktop/install-gsos.desktop
+chown -R liveuser:liveuser /home/liveuser
+
+# --- Services ----------------------------------------------------------------
+systemctl enable sddm.service
+systemctl enable NetworkManager.service
+systemctl enable bluetooth.service
+systemctl enable waydroid-container.service
+systemctl disable systemd-networkd.service 2>/dev/null || true
+systemctl disable iwd.service 2>/dev/null || true
+systemctl set-default graphical.target
+
+install -d /var/lib/waydroid
+
+echo "[GSOS] customize_airootfs.sh finished"
