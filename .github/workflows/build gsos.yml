@@ -159,7 +159,11 @@ jobs:
           # GSOS name in the boot menu and ISO info instead of "Arch Linux"
           grep -rl 'Arch Linux' "$P/syslinux" "$P/efiboot" "$P/grub" 2>/dev/null | xargs -r sed -i 's/Arch Linux/GSOS/g'
           sed -i 's/^iso_application=.*/iso_application="GSOS Live"/; s/^iso_publisher=.*/iso_publisher="GSOS"/' "$P/profiledef.sh"
-
+        
+          # GSOS theme bundle (theme, store, about): runs gsos-theme.sh if it exists
+          GB="$(find "$REPO" -type f -name gsos-theme.sh -not -path '*/.git/*' | head -n1 || true)"
+          if [ -n "$GB" ]; then P="$P" A="$A" bash "$GB" || echo "::warning::gsos-theme.sh failed"; else echo "::warning::gsos-theme.sh not found"; fi
+         
           # ---------- 5) Build the ISO ----------
           df -h /
           mkarchiso -v -w "$WORK" -o "$OUT" "$P" 2>&1 | tee "$OUT/build.log"
