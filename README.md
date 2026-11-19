@@ -50,27 +50,3 @@ GSOS (Arch Linux)
 
 
 ​Installer & Target Prep: Calamares branding and post-install chroot preparation (shellprocess-gsos-prep.conf) to transition from the live ISO environment to a standard installed system.
-
-
-
-
-
-​Repository Structure
-
-├── .github/
-│   └── workflows/
-│       └── build gsos.yml          # GitHub Actions workflow ("Build GSOS ISO")
-├── gsos-archiso/
-│   ├── airootfs/                   # Live filesystem overlay (etc, root, usr)
-│   ├── scripts/
-│   │   └── gsos-theme.sh           # Main theme, apps, autostart, and branding bundle script
-│   ├── BUILD_GSOS.md               # Build documentation/notes
-│   └── packages.x86_64             # Archiso package list
-├── yours/
-│   ├── gsos-profile-switcher       # Performance profile utility
-│   ├── gsos-theme-installer        # Theme installer script
-│   └── metadata.json               # Custom metadata
-├── BUILD_GSOS.md
-├── LICENSE
-└── README.md
-
