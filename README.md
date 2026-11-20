@@ -4,7 +4,7 @@
 
 ---
 
-## Visual Tour (1 → 2 → 3)
+## Visual Tour 
 
 ### 1. Desktop & Custom Wallpaper
 A dark slate-and-blue KDE Plasma desktop featuring the custom GSOS **"G"** wallpaper, a centered bottom dock/taskbar with quick launch icons, and system tray controls[span_9](start_span)[span_9](end_span).
