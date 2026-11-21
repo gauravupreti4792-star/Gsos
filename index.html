@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GSOS - a fresh operating system for any PC</title>
+<meta name="description" content="GSOS is a fast, clean desktop operating system that brings old computers back to life and runs your Windows apps.">
+<meta property="og:title" content="GSOS - a fresh operating system for any PC">
+<meta property="og:description" content="A clean, fast desktop that brings old computers back to life and runs your Windows apps.">
+<meta property="og:type" content="website">
+<meta name="theme-color" content="#12171d">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Crect width='512' height='512' rx='116' fill='%2312171d'/%3E%3Cpath d='M 440.3 256 A 184.3 184.3 0 1 1 415.6 163.85' fill='none' stroke='%235b8bff' stroke-width='87' stroke-linecap='round' transform='translate(0 0) scale(.78) translate(72 72)'/%3E%3C/svg%3E">
+<style>
+:root{--bg:#12171d;--panel:#1b2128;--line:#2c3541;--text:#e6eaf0;--muted:#8b95a3;--accent:#1e7fff;--accent2:#3df0ff}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--text);font:16px/1.6 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+a{color:var(--accent2)}
+.wrap{max-width:960px;margin:0 auto;padding:0 20px}
+header{position:sticky;top:0;z-index:5;background:rgba(18,23,29,.92);backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
+header .wrap{display:flex;align-items:center;justify-content:space-between;height:56px}
+.brand{display:flex;align-items:center;gap:10px;font-weight:700;letter-spacing:.5px;color:var(--text);text-decoration:none}
+.brand svg{width:28px;height:28px}
+nav a{color:var(--muted);text-decoration:none;margin-left:16px;font-size:15px}
+nav a:hover{color:var(--text)}
+.hero{padding:72px 0 56px;text-align:center;background:radial-gradient(600px 300px at 50% 0,rgba(30,127,255,.22),transparent 70%)}
+.hero svg.big{width:96px;height:96px}
+h1{font-size:clamp(40px,8vw,68px);margin:12px 0 4px;letter-spacing:1px}
+.tag{font-size:clamp(18px,3.4vw,24px);color:var(--muted);max-width:640px;margin:0 auto 28px}
+.btns{display:flex;gap:12px;justify-content:center;flex-wrap:wrap}
+.btn{display:inline-block;padding:14px 26px;border-radius:12px;font-weight:600;text-decoration:none;border:1px solid var(--line);color:var(--text);background:var(--panel)}
+.btn.primary{background:linear-gradient(135deg,var(--accent),#2a58ff);border-color:transparent;color:#fff}
+.btn:hover{filter:brightness(1.12)}
+.small{color:var(--muted);font-size:14px;margin-top:14px}
+section{padding:48px 0;border-top:1px solid var(--line)}
+h2{font-size:28px;margin:0 0 8px}
+.lead{color:var(--muted);margin:0 0 24px}
+.grid{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(250px,1fr))}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:20px}
+.card h3{margin:0 0 6px;font-size:18px}
+.card p{margin:0;color:var(--muted)}
+.shots{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(280px,1fr))}
+.shots figure{margin:0;background:var(--panel);border:1px solid var(--line);border-radius:14px;overflow:hidden}
+.shots img{display:block;width:100%;height:auto}
+.shots figcaption{padding:10px 14px;color:var(--muted);font-size:14px}
+.specs{width:100%;border-collapse:collapse}
+.specs td{padding:10px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+.specs td:first-child{color:var(--muted);width:38%}
+.dl{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:24px}
+.dl dl{display:grid;grid-template-columns:max-content 1fr;gap:8px 18px;margin:16px 0}
+.dl dt{color:var(--muted)}
+.dl dd{margin:0;word-break:break-all}
+code,pre{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:14px}
+pre{background:#0d1116;border:1px solid var(--line);border-radius:10px;padding:12px 14px;overflow-x:auto;margin:8px 0}
+ol.steps{padding-left:22px}
+ol.steps li{margin:10px 0}
+.warn{border-left:4px solid #f5a623;background:rgba(245,166,35,.08);padding:12px 16px;border-radius:8px;margin:18px 0}
+details{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 18px;margin:10px 0}
+summary{cursor:pointer;font-weight:600}
+details p{color:var(--muted);margin:10px 0 0}
+footer{border-top:1px solid var(--line);padding:32px 0;color:var(--muted);font-size:14px}
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <a class="brand" href="#top">
+      <svg viewBox="0 0 512 512" aria-hidden="true"><defs><linearGradient id="a1" gradientUnits="userSpaceOnUse" x1="70" y1="60" x2="450" y2="460"><stop offset="0" stop-color="#3df0ff"/><stop offset=".4" stop-color="#5b8bff"/><stop offset=".75" stop-color="#a566ff"/><stop offset="1" stop-color="#ff66b8"/></linearGradient></defs><path d="M 440.3 256 A 184.3 184.3 0 1 1 415.6 163.85" fill="none" stroke="url(#a1)" stroke-width="87" stroke-linecap="round"/><rect x="259.7" y="212.5" width="224.1" height="87" rx="24.4" fill="url(#a1)"/></svg>
+      GSOS
+    </a>
+    <nav><a href="#screens">Screens</a><a href="#features">Features</a><a href="#download">Download</a><a href="#install">Install</a><a href="#faq">FAQ</a></nav>
+  </div>
+</header>
+
+<main id="top">
+<div class="hero"><div class="wrap">
+  <svg class="big" viewBox="0 0 512 512" aria-label="GSOS logo"><defs><linearGradient id="a2" gradientUnits="userSpaceOnUse" x1="70" y1="60" x2="450" y2="460"><stop offset="0" stop-color="#3df0ff"/><stop offset=".4" stop-color="#5b8bff"/><stop offset=".75" stop-color="#a566ff"/><stop offset="1" stop-color="#ff66b8"/></linearGradient></defs><path d="M 440.3 256 A 184.3 184.3 0 1 1 415.6 163.85" fill="none" stroke="url(#a2)" stroke-width="87" stroke-linecap="round"/><rect x="259.7" y="212.5" width="224.1" height="87" rx="24.4" fill="url(#a2)"/></svg>
+  <h1>GSOS</h1>
+  <p class="tag">A clean, fast desktop that brings old computers back to life and runs your Windows apps.</p>
+  <div class="btns">
+    <a class="btn primary" id="dl-top" href="#download">Download GSOS</a>
+    <a class="btn" id="gh-top" href="#">View on GitHub</a>
+  </div>
+  <p class="small">Early test release. Free to try from a USB stick. Back up your files first.</p>
+</div></div>
+
+<section id="screens"><div class="wrap">
+  <h2>See GSOS in action</h2>
+  <p class="lead">Real screenshots from a real laptop.</p>
+  <div class="shots" id="shots-grid"></div>
+</div></section>
+
+<section id="features"><div class="wrap">
+  <h2>Why GSOS</h2>
+  <p class="lead">Built for everyday computers, including the older ones.</p>
+  <div class="grid">
+    <div class="card"><h3>Revives old PCs</h3><p>Smart performance profiles (Lite, Smooth, Balanced, Liquid) pick the right settings for your hardware.</p></div>
+    <div class="card"><h3>Runs Windows apps</h3><p>Microsoft Office, WinRAR and Adobe Reader have been tested and work. Many other Windows programs run too.</p></div>
+    <div class="card"><h3>GSOS Store</h3><p>One place to find and install apps with one click and no terminal.</p></div>
+    <div class="card"><h3>About GSOS</h3><p>See your device name and what it is made of in one clear screen, and rename it any time.</p></div>
+    <div class="card"><h3>A calm, consistent look</h3><p>A dark slate design with electric-blue accents, a solid taskbar and window controls on the right.</p></div>
+    <div class="card"><h3>Protected setup</h3><p>The look of the system is locked, so it stays tidy and the same on every device.</p></div>
+  </div>
+</div></section>
+
+<section id="tech"><div class="wrap">
+  <h2>Under the hood</h2>
+  <table class="specs">
+    <tr><td>Base</td><td>Arch Linux (rolling), kernel linux-zen</td></tr>
+    <tr><td>Desktop</td><td>KDE Plasma 6 on Wayland, with the GSOS theme</td></tr>
+    <tr><td>Installer</td><td>Calamares graphical installer</td></tr>
+    <tr><td>Windows apps</td><td>Wine</td></tr>
+    <tr><td>Android apps</td><td>Waydroid (experimental)</td></tr>
+    <tr><td>App Store</td><td>GSOS Store, powered by Flatpak and Flathub</td></tr>
+    <tr><td>Built with</td><td>mkarchiso and GitHub Actions</td></tr>
+  </table>
+</div></section>
+
+<section id="download"><div class="wrap">
+  <h2>Download</h2>
+  <p class="lead">Try GSOS from a USB stick. Nothing is installed until you choose to.</p>
+  <div class="dl">
+    <a class="btn primary" id="dl-main" href="#">Download the ISO</a>
+    <dl>
+      <dt>Version</dt><dd id="v-version">1.1 (test release)</dd>
+      <dt>Size</dt><dd id="v-size">about 2 GB</dd>
+      <dt>Released</dt><dd id="v-date">-</dd>
+      <dt>SHA-256</dt><dd><code id="v-sha">(checksum coming)</code></dd>
+    </dl>
+    <p class="small" style="margin:0">Check your download on Windows (PowerShell):</p>
+    <pre>Get-FileHash .\GSOS.iso -Algorithm SHA256</pre>
+    <p class="small" style="margin:0">The result must match the SHA-256 above. The file is hosted on the Internet Archive.</p>
+  </div>
+  <h3 style="margin-top:28px">What you need</h3>
+  <ul>
+    <li>A 64-bit computer (Intel or AMD) with 4 GB of memory or more.</li>
+    <li>A USB stick of 8 GB or more.</li>
+    <li>An internet connection for the Store and updates.</li>
+  </ul>
+</div></section>
+
+<section id="install"><div class="wrap">
+  <h2>Install in four steps</h2>
+  <ol class="steps">
+    <li><b>Download</b> the ISO file above and check the SHA-256.</li>
+    <li><b>Make the USB stick.</b> Open <a href="https://rufus.ie" rel="noopener">Rufus</a>, choose the ISO, and when asked pick <b>DD Image mode</b>.</li>
+    <li><b>Start from the USB.</b> Restart the computer, press the boot-menu key (often F12, F2 or Esc) and choose the USB stick.</li>
+    <li><b>Try it, then install.</b> Explore GSOS from the stick. Use the <b>Install GSOS</b> icon on the desktop when you are ready.</li>
+  </ol>
+  <div class="warn"><b>Important:</b> choosing "Erase disk" in the installer deletes everything on that drive. Back up your files first, or try GSOS in a virtual machine.</div>
+</div></section>
+
+<section id="faq"><div class="wrap">
+  <h2>Questions</h2>
+  <details><summary>Is GSOS free?</summary><p>Yes. You can download, try and share it for free.</p></details>
+  <details><summary>What is it built on?</summary><p>GSOS is powered by Linux and uses the KDE Plasma desktop. The look, the Store and the setup are GSOS's own.</p></details>
+  <details><summary>Will all my Windows apps work?</summary><p>Many do, but not all. Office, WinRAR and Adobe Reader work in our tests. Some apps, such as certain Adobe programs and games with anti-cheat, may not.</p></details>
+  <details><summary>Is it safe to try?</summary><p>Starting from the USB stick does not change your computer. Only the installer writes to your drives, so back up first.</p></details>
+  <details><summary>Where is the source code?</summary><p>The build recipe and files are on our <a id="gh-faq" href="#">GitHub page</a>. GSOS includes open-source software, each under its own license.</p></details>
+</div></section>
+</main>
+
+<footer><div class="wrap">
+  <p><b>GSOS</b> is an independent project. It is not affiliated with Apple, Microsoft, Adobe or Google. Names of other products belong to their owners.</p>
+  <p>Made possible by open-source projects including Linux, Arch Linux, KDE Plasma, Wine, Waydroid, Papirus icons and Flathub.</p>
+  <p id="copyright"></p>
+</div></footer>
+
+<script>
+// ===== EDIT THESE VALUES, then save. Everything on the page updates from here. =====
+var GSOS = {
+  downloadUrl: "",   // direct link to the ISO, e.g. https://archive.org/download/YOUR-ITEM-NAME/GSOS.iso
+  githubUrl:   "https://github.com/gauravupreti4792-star/Gsos",
+  version:     "1.1 (test release)",
+  size:        "about 2 GB",
+  released:    "",   // for example "20 November 2026"
+  sha256:      "",   // paste the checksum from GSOS.iso.sha256
+  // Screenshot file names must match your repository files exactly (capital letters matter).
+  shots: [
+    { file: "desktop.png",  caption: "The GSOS desktop" },
+    { file: "launcher.png", caption: "The application launcher" },
+    { file: "store.png",    caption: "GSOS Store" }
+  ]
+};
+// ====================================================================================
+(function () {
+  function set(id, text) { var el = document.getElementById(id); if (el && text) el.textContent = text; }
+  function link(ids, url) {
+    ids.forEach(function (id) {
+      var el = document.getElementById(id);
+      if (el && url) { el.href = url; el.rel = "noopener"; }
+    });
+  }
+  link(["dl-top", "dl-main"], GSOS.downloadUrl);
+  link(["gh-top", "gh-faq"], GSOS.githubUrl);
+  set("v-version", GSOS.version);
+  set("v-size", GSOS.size);
+  set("v-date", GSOS.released);
+  set("v-sha", GSOS.sha256);
+  if (!GSOS.downloadUrl) {
+    var m = document.getElementById("dl-main");
+    if (m) m.textContent = "Download coming soon";
+  }
+  var grid = document.getElementById("shots-grid");
+  var shots = GSOS.shots || [];
+  var shown = shots.length;
+  shots.forEach(function (s) {
+    var fig = document.createElement("figure");
+    var a = document.createElement("a");
+    a.href = s.file; a.target = "_blank"; a.rel = "noopener";
+    var img = document.createElement("img");
+    img.src = s.file; img.alt = s.caption; img.loading = "lazy";
+    img.onerror = function () {
+      fig.style.display = "none";
+      shown -= 1;
+      if (shown <= 0) document.getElementById("screens").style.display = "none";
+    };
+    a.appendChild(img);
+    var cap = document.createElement("figcaption");
+    cap.textContent = s.caption;
+    fig.appendChild(a); fig.appendChild(cap);
+    grid.appendChild(fig);
+  });
+  if (!shots.length) document.getElementById("screens").style.display = "none";
+  document.getElementById("copyright").textContent = "\u00A9 " + new Date().getFullYear() + " GSOS";
+})();
+</script>
+</body>
+</html>
