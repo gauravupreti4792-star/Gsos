@@ -43,9 +43,7 @@ jobs:
           mkdir -p "$OUT" "$WORK" "$BUILD"
 
           # ---------- 1) Prepare Arch ----------
-          # Containers block Landlock, which pacman's download sandbox needs.
           sed -i '/^\[options\]/a DisableSandbox' /etc/pacman.conf
-          # Turn multilib on: drop any existing (commented) multilib block, then add a clean one.
           enable_multilib() {
             sed -i '/^#\?\[multilib\]/,/^#\?Include/d' "$1"
             printf '\n[multilib]\nInclude = /etc/pacman.d/mirrorlist\n' >> "$1"
@@ -55,7 +53,6 @@ jobs:
           pacman-key --populate archlinux
           pacman -Syu --noconfirm --needed archiso base-devel git sudo
 
-          # Fail fast (in a minute, not after 15) if the 32-bit repo is not usable.
           if ! pacman -Si lib32-mesa >/dev/null 2>&1; then
             echo "::error::multilib is not working in the container (lib32-mesa not found)."
             tail -n 25 /etc/pacman.conf
@@ -102,7 +99,6 @@ jobs:
           printf '\n[gsos-local]\nSigLevel = Optional TrustAll\nServer = file://%s\n' "$LOCALREPO" >> /etc/pacman.conf
           pacman -Sy
 
-          # Any other package from packages.x86_64 that is not in the repos gets built from the AUR automatically.
           list_missing() {
             grep -v '^[[:space:]]*#' "$PKG_FILE" | awk 'NF{print $1}' | while read -r p; do
               pacman -Si "$p" >/dev/null 2>&1 || echo "$p"
@@ -127,6 +123,7 @@ jobs:
           rm -f "$BUILD/gsos-archiso/BUILD_GSOS.md"
           P="$BUILD/gsos-archiso"
           A="$P/airootfs"
+          mkdir -p "$A"
 
           install -Dm755 "$SWITCHER" "$A/usr/local/bin/gsos-profile-switcher"
           install -Dm755 "$THEMER"   "$A/usr/local/bin/gsos-theme-installer"
@@ -151,19 +148,37 @@ jobs:
           printf '\n[gsos-local]\nSigLevel = Optional TrustAll\nServer = file://%s\n' "$LOCALREPO" >> "$P/pacman.conf"
 
           sed -i 's/^iso_name=.*/iso_name="gsos"/; s/^iso_label=.*/iso_label="GSOS_LIVE"/' "$P/profiledef.sh"
-
-          # Fast compression (zstd instead of xz): far quicker on 2 CPUs; the ISO ends up a bit larger.
-          sed -i "s/^airootfs_image_tool_options=.*/airootfs_image_tool_options=('-comp' 'zstd' '-Xcompression-level' '3' '-b' '1M')/" "$P/profiledef.sh"
-          grep -n 'airootfs_image_tool_options' "$P/profiledef.sh"
-
-          # GSOS name in the boot menu and ISO info instead of "Arch Linux"
           grep -rl 'Arch Linux' "$P/syslinux" "$P/efiboot" "$P/grub" 2>/dev/null | xargs -r sed -i 's/Arch Linux/GSOS/g'
           sed -i 's/^iso_application=.*/iso_application="GSOS Live"/; s/^iso_publisher=.*/iso_publisher="GSOS"/' "$P/profiledef.sh"
-        
-          # GSOS theme bundle (theme, store, about): runs gsos-theme.sh if it exists
-          GB="$(find "$REPO" -type f -name gsos-theme.sh -not -path '*/.git/*' | head -n1 || true)"
-          if [ -n "$GB" ]; then P="$P" A="$A" bash "$GB" || echo "::warning::gsos-theme.sh failed"; else echo "::warning::gsos-theme.sh not found"; fi
-         
+
+          # Run GSOS scripts in order if present in the repo
+          run_gsos_script() {
+            local name="$1"
+            local found
+            found="$(find "$REPO" -type f -name "$name" -not -path '*/.git/*' | head -n1 || true)"
+            if [ -n "$found" ]; then
+              echo "=== Running $name ($found) ==="
+              tmp_script="$BUILD/$name"
+              cp "$found" "$tmp_script"
+              sed -i 's/\r$//' "$tmp_script"
+              chmod +x "$tmp_script"
+              P="$P" A="$A" bash "$tmp_script"
+            else
+              echo "::notice::$name not found in repo (skipping)"
+            fi
+          }
+
+          run_gsos_script "gsos-theme.sh"
+          run_gsos_script "gsos-update.sh"
+          run_gsos_script "gsos-swirl.sh"
+          run_gsos_script "gsos-boot.sh"
+          run_gsos_script "gsos-identity-size.sh"
+          run_gsos_script "gsos-polish.sh"
+
+          # Enforce < 2GB zstd-22 1M SquashFS compression after all scripts run
+          sed -i "s|^airootfs_image_tool_options=.*|airootfs_image_tool_options=('-comp' 'zstd' '-Xcompression-level' '22' '-b' '1M')|" "$P/profiledef.sh"
+          grep -n 'airootfs_image_tool_options' "$P/profiledef.sh"
+
           # ---------- 5) Build the ISO ----------
           df -h /
           mkarchiso -v -w "$WORK" -o "$OUT" "$P" 2>&1 | tee "$OUT/build.log"
@@ -185,7 +200,7 @@ jobs:
             archlinux:latest bash /build-in-arch.sh
 
       - name: Save Calamares build to the cache
-        if: always() && steps.cache.outputs.cache-hit != 'true'
+        if: success() && steps.cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
           path: ${{ runner.temp }}/localrepo
