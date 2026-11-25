@@ -1,0 +1,7 @@
+[Daemon]
+Autolock=true
+LockOnResume=true
+Timeout=5
+
+[Greeter]
+Theme=org.kde.gsos.lockscreen
