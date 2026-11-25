@@ -1,0 +1,7 @@
+[SddmGreeterTheme]
+Name=GSOS Dark
+Description=Custom GSOS login theme
+Author=GSOS Project
+Version=1.0
+MainScript=Main.qml
+ConfigFile=theme.conf
