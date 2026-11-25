@@ -5,7 +5,7 @@ set -u
 : "${P:?P not set}" "${A:?A not set}"
 echo "[gsos-theme] start"
 
-for pkg in papirus-icon-theme python-pyqt6 pciutils flatpak nbd plymouth noto-fonts qt6-declarative qt6-5compat; do
+for pkg in linux-zen papirus-icon-theme python-pyqt6 pciutils flatpak nbd plymouth noto-fonts qt6-declarative qt6-5compat; do
   grep -qx "$pkg" "$P/packages.x86_64" || printf '\n%s\n' "$pkg" >> "$P/packages.x86_64"
 done
 
@@ -102,37 +102,6 @@ ForegroundPositive=190,255,215
 ForegroundVisited=220,205,255
 GSOS_SEL
 } > "$A/etc/xdg/kdeglobals"
-
-cat > "$A/etc/xdg/kwinrc" <<'GSOS_KWIN'
-# GSOS window manager: controls on the right (minimize, maximize, close), crisp animations, edge snapping.
-[org.kde.kdecoration2][$i]
-library=org.kde.breeze
-theme=Breeze
-ButtonsOnLeft=
-ButtonsOnRight=IAX
-CloseOnDoubleClickOnMenu=false
-
-[Plugins]
-blurEnabled[$i]=false
-contrastEnabled[$i]=false
-magiclampEnabled[$i]=false
-wobblywindowsEnabled[$i]=false
-squashEnabled[$i]=false
-fadeEnabled=true
-fadingpopupsEnabled=true
-slidingpopupsEnabled=true
-slideEnabled=true
-
-[Windows]
-ElectricBorderMaximize=true
-ElectricBorderTiling=true
-ElectricBorderCornerRatio=0.25
-ElectricBorders=0
-BorderSnapZone=24
-WindowSnapZone=24
-CenterSnap=false
-SnapOnlyWhenOverlapping=false
-GSOS_KWIN
 
 # System Settings > About shows the GSOS name and logo
 printf '[General]\nName=GSOS\nLogoPath=/usr/share/gsos/gsos-mark.svg\n' > "$A/etc/xdg/kcm-about-distrorc"
@@ -562,7 +531,6 @@ Rectangle {
     Component.onCompleted: intro.start()
 }
 GSOS_QML
-printf '[KSplash]\nEngine=KSplashQML\nTheme[$i]=org.gsos.splash\n' > "$A/etc/xdg/ksplashrc"
 
 # ============================================================ 4) FIRST LOGIN: profile, store source, taskbar, wallpaper
 cat > "$A/usr/local/bin/gsos-first-login.sh" <<'GSOS_FIRST'
@@ -592,7 +560,7 @@ wait_for_plasma() {
 pkexec /usr/local/bin/gsos-profile-switcher --profile auto && echo "profile: auto applied" || {
   echo "profile: failed"; notify "Open 'GSP Performance Manager' to choose Lite, Smooth, Balanced or Liquid."; }
 
-# 2) app-store source for GSOS Store (keeps retrying in the background until the network is up)
+# 2) app-store source for Flatpak / GNOME Software (keeps retrying in the background until the network is up)
 ( for _ in $(seq 1 30); do
     flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo && break
     sleep 10
@@ -619,7 +587,7 @@ tasks.writeConfig("fill", false);
 tasks.writeConfig("launchers", [
   "applications:org.kde.dolphin.desktop",
   "applications:firefox.desktop",
-  "applications:org.gsos.store.desktop",
+  "applications:org.gnome.Software.desktop",
   "applications:org.kde.konsole.desktop",
   "applications:systemsettings.desktop",
   "applications:org.gsos.about.desktop"
@@ -650,214 +618,7 @@ GSOS_FIRST
 printf '[Desktop Entry]\nType=Application\nName=GSOS First Login Setup\nComment=Sets up the GSOS desktop once per user\nExec=/usr/local/bin/gsos-first-login.sh\nIcon=preferences-system\nTerminal=false\nNoDisplay=true\nX-KDE-autostart-phase=2\n' \
   > "$A/etc/xdg/autostart/gsos-first-login.desktop"
 
-# ============================================================ 5) GSOS STORE
-cat > "$A/usr/local/bin/gsos-store.py" <<'GSOS_STORE'
-#!/usr/bin/env python3
-"""GSOS Store v0.1 - a curated app store. Apps are installed from Flathub with Flatpak."""
-import subprocess
-import sys
-
-REMOTE_URL = "https://dl.flathub.org/repo/flathub.flatpakrepo"
-CATEGORIES = ["All", "Internet", "Office", "Media", "Creative", "Games", "Developer", "Tools"]
-CATALOG = [  # name, category, Flathub id, short description
-    ("Brave", "Internet", "com.brave.Browser", "Fast, private web browser."),
-    ("Thunderbird", "Internet", "org.mozilla.Thunderbird", "Email, calendar and contacts."),
-    ("Telegram", "Internet", "org.telegram.desktop", "Messaging with friends and groups."),
-    ("Discord", "Internet", "com.discordapp.Discord", "Voice, video and text chat."),
-    ("Signal", "Internet", "org.signal.Signal", "Private messaging."),
-    ("Zoom", "Internet", "us.zoom.Zoom", "Video meetings."),
-    ("qBittorrent", "Internet", "org.qbittorrent.qBittorrent", "Download manager for torrents."),
-    ("LibreOffice", "Office", "org.libreoffice.LibreOffice", "Documents, spreadsheets and slides."),
-    ("OnlyOffice", "Office", "org.onlyoffice.desktopeditors", "Office suite that opens Microsoft files."),
-    ("Okular", "Office", "org.kde.okular", "PDF and document viewer."),
-    ("VLC", "Media", "org.videolan.VLC", "Plays almost any video or audio file."),
-    ("Spotify", "Media", "com.spotify.Client", "Music streaming."),
-    ("OBS Studio", "Media", "com.obsproject.Studio", "Screen recording and live streaming."),
-    ("Audacity", "Media", "org.audacityteam.Audacity", "Record and edit audio."),
-    ("Kodi", "Media", "tv.kodi.Kodi", "Media center for your library."),
-    ("GIMP", "Creative", "org.gimp.GIMP", "Photo editing."),
-    ("Krita", "Creative", "org.kde.krita", "Digital painting and illustration."),
-    ("Inkscape", "Creative", "org.inkscape.Inkscape", "Vector graphics and logos."),
-    ("Blender", "Creative", "org.blender.Blender", "3D modelling, animation and rendering."),
-    ("Kdenlive", "Creative", "org.kde.kdenlive", "Video editor."),
-    ("Shotcut", "Creative", "org.shotcut.Shotcut", "Simple video editor."),
-    ("Steam", "Games", "com.valvesoftware.Steam", "Game store and launcher."),
-    ("Heroic Games Launcher", "Games", "com.heroicgameslauncher.hgl", "Epic, GOG and Amazon games."),
-    ("Visual Studio Code", "Developer", "com.visualstudio.code", "Code editor."),
-    ("Bottles", "Tools", "com.usebottles.bottles", "Manage Windows apps and games."),
-    ("HandBrake", "Tools", "fr.handbrake.ghb", "Convert video files."),
-]
-
-
-def run(cmd, timeout=60):
-    try:
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
-        return r.returncode == 0, (r.stdout + r.stderr).strip()
-    except Exception as exc:  # noqa: BLE001
-        return False, str(exc)
-
-
-def installed_apps():
-    ok, out = run(["flatpak", "list", "--app", "--columns=application"])
-    return {line.strip() for line in out.splitlines() if "." in line} if ok else set()
-
-
-def filter_catalog(query, category):
-    q = query.strip().lower()
-    return [a for a in CATALOG
-            if (category == "All" or a[1] == category) and (not q or q in a[0].lower() or q in a[3].lower())]
-
-
-def commands_for(action, app_id):
-    add = ["flatpak", "remote-add", "--user", "--if-not-exists", "flathub", REMOTE_URL]
-    if action == "install":
-        return [add, ["flatpak", "install", "--user", "-y", "--noninteractive", "flathub", app_id]]
-    if action == "remove":
-        return [["flatpak", "uninstall", "--user", "-y", "--noninteractive", app_id]]
-    return []
-
-
-def main():
-    from PyQt6.QtCore import QProcess
-    from PyQt6.QtGui import QIcon
-    from PyQt6.QtWidgets import (QApplication, QComboBox, QFrame, QHBoxLayout, QLabel, QLineEdit,
-                                 QPushButton, QScrollArea, QVBoxLayout, QWidget)
-
-    class Store(QWidget):
-        def __init__(self):
-            super().__init__()
-            self.setWindowTitle("GSOS Store")
-            self.setWindowIcon(QIcon("/usr/share/gsos/gsos-store.svg"))
-            self.resize(920, 660)
-            self.installed = installed_apps()
-            self.queue = []
-            self.current = None
-            self.label = ""
-            self.proc = QProcess(self)
-            self.proc.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
-            self.proc.readyReadStandardOutput.connect(self.on_output)
-            self.proc.finished.connect(self.on_finished)
-            self.proc.errorOccurred.connect(lambda _e: self.finish(False))
-
-            outer = QVBoxLayout(self)
-            outer.addWidget(QLabel("<h2>GSOS Store</h2><p>Apps for GSOS. One click to install.</p>"))
-            bar = QHBoxLayout()
-            self.search = QLineEdit()
-            self.search.setPlaceholderText("Search apps...")
-            self.search.textChanged.connect(self.render)
-            self.cat = QComboBox()
-            self.cat.addItems(CATEGORIES)
-            self.cat.currentIndexChanged.connect(self.render)
-            bar.addWidget(self.search, 1)
-            bar.addWidget(self.cat)
-            outer.addLayout(bar)
-            scroll = QScrollArea()
-            scroll.setWidgetResizable(True)
-            scroll.setFrameShape(QFrame.Shape.NoFrame)
-            outer.addWidget(scroll, 1)
-            body = QWidget()
-            self.items = QVBoxLayout(body)
-            scroll.setWidget(body)
-            self.status = QLabel("Ready.")
-            self.status.setWordWrap(True)
-            outer.addWidget(self.status)
-            self.render()
-
-        def render(self, *_):
-            while self.items.count():
-                item = self.items.takeAt(0)
-                if item.widget():
-                    item.widget().deleteLater()
-            busy = self.current is not None
-            for name, cat, app_id, desc in filter_catalog(self.search.text(), self.cat.currentText()):
-                card = QFrame()
-                card.setObjectName("card")
-                card.setStyleSheet("#card { border: 1px solid palette(mid); border-radius: 12px; }")
-                row = QHBoxLayout(card)
-                text = QVBoxLayout()
-                text.addWidget(QLabel("<b>%s</b>  <small>%s</small>" % (name, cat)))
-                blurb = QLabel(desc)
-                blurb.setWordWrap(True)
-                text.addWidget(blurb)
-                row.addLayout(text, 1)
-                have = app_id in self.installed
-                main_btn = QPushButton("Open" if have else "Install")
-                main_btn.setEnabled(have or not busy)
-                main_btn.clicked.connect(
-                    lambda _=False, i=app_id, h=have: self.open_app(i) if h else self.start("install", i))
-                row.addWidget(main_btn)
-                if have:
-                    remove = QPushButton("Remove")
-                    remove.setEnabled(not busy)
-                    remove.clicked.connect(lambda _=False, i=app_id: self.start("remove", i))
-                    row.addWidget(remove)
-                self.items.addWidget(card)
-            self.items.addStretch(1)
-
-        def open_app(self, app_id):
-            subprocess.Popen(["flatpak", "run", app_id], stdout=subprocess.DEVNULL,
-                             stderr=subprocess.DEVNULL, start_new_session=True)
-
-        def start(self, action, app_id):
-            self.queue = commands_for(action, app_id)
-            self.label = ("Installing " if action == "install" else "Removing ") + app_id
-            self.status.setText(self.label + "...")
-            self.current = app_id
-            self.render()
-            self.next_step()
-
-        def next_step(self):
-            if not self.queue:
-                self.finish(True)
-                return
-            cmd = self.queue.pop(0)
-            self.proc.start(cmd[0], cmd[1:])
-
-        def on_output(self):
-            text = bytes(self.proc.readAllStandardOutput()).decode(errors="replace")
-            lines = [ln.strip() for ln in text.replace("\r", "\n").splitlines() if ln.strip()]
-            if lines:
-                self.status.setText("%s: %s" % (self.label, lines[-1][:120]))
-
-        def on_finished(self, code, _status):
-            if code != 0:
-                self.finish(False)
-            else:
-                self.next_step()
-
-        def finish(self, ok):
-            if self.current is None:
-                return
-            self.queue = []
-            self.current = None
-            self.installed = installed_apps()
-            self.status.setText("Done." if ok else "That did not work. Check your internet connection and try again.")
-            self.render()
-
-    app = QApplication(sys.argv)
-    app.setDesktopFileName("org.gsos.store")
-    window = Store()
-    window.show()
-    sys.exit(app.exec())
-
-
-if __name__ == "__main__":
-    main()
-GSOS_STORE
-cat > "$A/usr/share/applications/org.gsos.store.desktop" <<'GSOS_DESK'
-[Desktop Entry]
-Type=Application
-Name=GSOS Store
-GenericName=App Store
-Comment=Find and install apps
-Exec=python3 /usr/local/bin/gsos-store.py
-Icon=/usr/share/gsos/gsos-store.svg
-Terminal=false
-Categories=System;PackageManager;
-Keywords=store;apps;install;download;software;
-GSOS_DESK
-
-# ============================================================ 6) GSOS ABOUT (OS name, device name, device configuration)
+# ============================================================ 5) GSOS ABOUT (OS name, device name, device configuration)
 cat > "$A/usr/local/bin/gsos-about.py" <<'GSOS_ABOUT'
 #!/usr/bin/env python3
 """GSOS About v0.1 - the OS name, this device's name and its configuration."""
@@ -1036,7 +797,7 @@ Categories=Settings;System;
 Keywords=about;device;name;system;information;hardware;
 GSOS_DESK
 
-# ============================================================ 7) BRANDING, LIVE USER, SERVICES (runs inside the ISO chroot)
+# ============================================================ 6) BRANDING, LIVE USER, SERVICES (runs inside the ISO chroot)
 cat > "$A/root/customize_airootfs.sh" <<'GSOS_CUSTOM'
 #!/usr/bin/env bash
 # Runs inside the airootfs chroot during mkarchiso (deprecated by archiso but still supported).
@@ -1049,7 +810,7 @@ echo "LANG=en_US.UTF-8" > /etc/locale.conf
 ln -sf /usr/share/zoneinfo/UTC /etc/localtime
 echo "gsos" > /etc/hostname
 
-for f in gsos-profile-switcher gsos-theme-installer gsos-profile-menu gsos-first-login.sh gsos-store.py gsos-about.py; do
+for f in gsos-profile-switcher gsos-theme-installer gsos-profile-menu gsos-first-login.sh gsos-about.py; do
   [[ -f "/usr/local/bin/$f" ]] && chmod 0755 "/usr/local/bin/$f"
 done
 
@@ -1094,8 +855,10 @@ passwd -d liveuser
 echo '%wheel ALL=(ALL:ALL) NOPASSWD: ALL' > /etc/sudoers.d/g_wheel
 chmod 0440 /etc/sudoers.d/g_wheel
 install -d -o liveuser -g liveuser /home/liveuser/Desktop
-cp -f /etc/skel/Desktop/install-gsos.desktop /home/liveuser/Desktop/
-chmod 0755 /home/liveuser/Desktop/install-gsos.desktop
+if [[ -f /etc/skel/Desktop/install-gsos.desktop ]]; then
+  cp -f /etc/skel/Desktop/install-gsos.desktop /home/liveuser/Desktop/
+  chmod 0755 /home/liveuser/Desktop/install-gsos.desktop
+fi
 chown -R liveuser:liveuser /home/liveuser
 
 systemctl enable sddm.service NetworkManager.service bluetooth.service waydroid-container.service
@@ -1118,6 +881,7 @@ script:
   - command: "printf '%s\\n' \"ALL_config='/etc/mkinitcpio.conf'\" \"ALL_kver='/boot/vmlinuz-linux-zen'\" \"PRESETS=('default' 'fallback')\" \"default_image='/boot/initramfs-linux-zen.img'\" \"fallback_image='/boot/initramfs-linux-zen-fallback.img'\" \"fallback_options='-S autodetect'\" > /etc/mkinitcpio.d/linux-zen.preset"
   - "rm -f /etc/sddm.conf.d/autologin.conf /etc/sudoers.d/g_wheel /etc/polkit-1/rules.d/49-gsos-live.rules"
   - "sed -i 's/^# %wheel ALL=(ALL:ALL) ALL/%wheel ALL=(ALL:ALL) ALL/' /etc/sudoers"
+  - "rm -f /home/*/Desktop/install-gsos.desktop /etc/skel/Desktop/install-gsos.desktop /usr/share/applications/install-gsos.desktop"
   - "userdel -r liveuser || true"
   - "rm -f /root/.automated_script.sh /root/.zlogin"
 GSOS_SP
