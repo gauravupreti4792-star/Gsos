@@ -21,11 +21,6 @@ for f in gsos-profile-switcher gsos-theme-installer gsos-profile-menu gsos-first
   fi
 done
 
-# --- macOS-style theme, installed system-wide ------------------------------
-if [[ -x /usr/local/bin/gsos-theme-installer ]]; then
-  /usr/local/bin/gsos-theme-installer --system || echo "[GSOS] WARNING: theme installer failed; ISO will build without the theme"
-fi
-
 # --- GSOS branding: what System Settings > About and the login screens show ---
 cat > /usr/lib/os-release <<'OSR'
 NAME="GSOS"
@@ -48,10 +43,39 @@ if [[ -d /usr/share/calamares/branding/default && -f /etc/calamares/settings.con
   sed -i 's/^branding:.*/branding: gsos/' /etc/calamares/settings.conf
 fi
 
-# --- GSOS login screen background (shown on installed systems) ---
-if [[ -d /usr/share/sddm/themes/breeze ]]; then
-  printf '[General]\nbackground=/usr/share/gsos/wallpaper.jpg\ntype=image\n' \
-    > /usr/share/sddm/themes/breeze/theme.conf.user
+# --- Custom GSOS SDDM & Lock Screen (avoiding stock Breeze) ---------------
+mkdir -p /etc/sddm.conf.d
+cat > /etc/sddm.conf.d/gsos.conf <<'SDDM'
+[Theme]
+Current=gsos-dark
+CursorTheme=breeze_cursors
+
+[General]
+InputMethod=qtvirtualkeyboard
+SDDM
+
+mkdir -p /etc/xdg
+cat > /etc/xdg/kscreenlockerrc <<'LOCK'
+[Daemon]
+Autolock=true
+LockOnResume=true
+Timeout=5
+
+[Greeter]
+Theme=org.kde.gsos.lockscreen
+LOCK
+
+# --- Plymouth theme & initramfs / GRUB generation ------------------------
+if command -v plymouth-set-default-theme >/dev/null 2>&1; then
+  plymouth-set-default-theme gsos || true
+fi
+
+if command -v mkinitcpio >/dev/null 2>&1; then
+  mkinitcpio -P || true
+fi
+
+if command -v grub-mkconfig >/dev/null 2>&1 && [[ -d /boot/grub ]]; then
+  grub-mkconfig -o /boot/grub/grub.cfg || true
 fi
 
 # --- Live user + passwordless sudo (live session only) ---------------------
