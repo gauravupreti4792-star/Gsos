@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# GSOS final polish bundle: swirl window animation, clean GSOS logo boot/shutdown,
+# GSOS final polish bundle: swirl window animation, zero-text GSOS logo boot/shutdown,
 # no post-login splash, distinct icons, clean About GSOS, GSOS app names, Calamares GSOS
 # branding, screenshot shortcuts, function keys, and <2GB ISO compression/trimming.
 # Called with $P (archiso profile) and $A ($P/airootfs) set. Runs after gsos-update.sh.
@@ -12,6 +12,8 @@ for pkg in spectacle kglobalaccel kinfocenter; do
 done
 
 mkdir -p \
+  "$A/etc/plymouth" \
+  "$A/etc/sysctl.d" \
   "$A/etc/xdg" \
   "$A/etc/skel/.config" \
   "$A/usr/local/bin" \
@@ -112,7 +114,14 @@ AnimationSpeed=3
 GSOS_KWINRC
 cp "$A/etc/xdg/kwinrc" "$A/etc/skel/.config/kwinrc"
 
-# ---------- 2. Clean GSOS Plymouth boot & shutdown (logo only, no background text) ----------
+# ---------- 2. Strict Zero-Text GSOS Plymouth Boot & Shutdown ----------
+cat > "$A/etc/plymouth/plymouthd.conf" <<'GSOS_PLYD'
+[Daemon]
+Theme=gsos
+ShowDelay=0
+DeviceTimeout=8
+GSOS_PLYD
+
 cat > "$A/usr/share/plymouth/themes/gsos/gsos.plymouth" <<'GSOS_PLY_CONF'
 [Plymouth Theme]
 Name=GSOS
@@ -140,10 +149,9 @@ logo_sprite.SetX(w / 2 - logo_img.GetWidth() / 2);
 logo_sprite.SetY(h / 2 - logo_img.GetHeight() / 2);
 logo_sprite.SetZ(10);
 
-fun on_update_status(msg) {
-    // Intentionally silent so no background status lines appear behind GSOS
-}
-Plymouth.SetUpdateStatusFunction(on_update_status);
+fun silent_cb(msg) {}
+Plymouth.SetUpdateStatusFunction(silent_cb);
+Plymouth.SetMessageFunction(silent_cb);
 
 tick = 0;
 fun on_refresh() {
@@ -152,6 +160,10 @@ fun on_refresh() {
 }
 Plymouth.SetRefreshFunction(on_refresh);
 GSOS_PLY_SCRIPT
+
+cat > "$A/etc/sysctl.d/20-quiet-printk.conf" <<'GSOS_PRINTK'
+kernel.printk = 0 0 0 0
+GSOS_PRINTK
 
 # Prevent post-login KSplash replay after password entry
 cat > "$A/etc/xdg/ksplashrc" <<'GSOS_KSPLASH'
@@ -235,10 +247,11 @@ GSOS_SHORTCUTS
 cp "$A/etc/xdg/kglobalshortcutsrc" "$A/etc/skel/.config/kglobalshortcutsrc"
 
 # ---------- 5. Bootloader silent flags & <2GB zstd-22 compression ----------
-SILENT_FLAGS="quiet splash loglevel=3 rd.udev.log_level=3 vt.global_cursor_default=0 nowatchdog"
+SILENT_FLAGS="quiet splash loglevel=0 rd.systemd.show_status=false systemd.show_status=false rd.udev.log_level=0 udev.log_level=0 vt.global_cursor_default=0 nowatchdog"
 for cfg in "$P"/syslinux/*.cfg "$P"/efiboot/loader/entries/*.conf "$P"/grub/grub.cfg; do
-  if [ -f "$cfg" ] && ! grep -q "vt.global_cursor_default=0" "$cfg"; then
-    sed -i "s|archisobasedir=|${SILENT_FLAGS} archisobasedir=|g" "$cfg" || true
+  if [ -f "$cfg" ]; then
+    sed -i -E "s/\b(quiet|splash|loglevel=[0-9]+|rd\.systemd\.show_status=[^ ]+|systemd\.show_status=[^ ]+|rd\.udev\.log_level=[0-9]+|udev\.log_level=[0-9]+|vt\.global_cursor_default=[0-9]+|nowatchdog)\b//g" "$cfg"
+    sed -i "s|archisobasedir=|${SILENT_FLAGS} archisobasedir=|g" "$cfg"
   fi
 done
 
@@ -256,6 +269,8 @@ if [ -f "$CUSTOM" ] && ! grep -q "# \[gsos-polish\] hook" "$CUSTOM"; then
   cat >> "$CUSTOM" <<'GSOS_CUSTOM_HOOK'
 
 # [gsos-polish] hook
+systemctl mask getty@tty1.service || true
+
 if command -v plymouth-set-default-theme >/dev/null 2>&1; then
   plymouth-set-default-theme gsos || true
 fi
