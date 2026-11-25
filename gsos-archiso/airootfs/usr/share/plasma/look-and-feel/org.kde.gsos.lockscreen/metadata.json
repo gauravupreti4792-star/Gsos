@@ -1,0 +1,10 @@
+{
+    "KPackageStructure": "Plasma/LookAndFeel",
+    "KPlugin": {
+        "Id": "org.kde.gsos.lockscreen",
+        "Name": "GSOS Lock Screen",
+        "Description": "Custom GSOS lock screen theme",
+        "Version": "1.0",
+        "EnabledByDefault": true
+    }
+}
