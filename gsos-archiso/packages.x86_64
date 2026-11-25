@@ -8,6 +8,7 @@ amd-ucode
 mkinitcpio
 mkinitcpio-archiso
 mkinitcpio-nfs-utils
+plymouth
 arch-install-scripts
 syslinux
 grub
@@ -69,6 +70,8 @@ xdg-desktop-portal
 xdg-desktop-portal-kde
 polkit-kde-agent
 kde-cli-tools
+qt6-declarative
+qt6-5compat
 qt6-wayland
 qt6-tools
 xorg-xwayland
