@@ -87,6 +87,13 @@ gsosSwirl.init();
 GSOS_SWIRL_JS
 
 cat > "$A/etc/xdg/kwinrc" <<'GSOS_KWINRC'
+[org.kde.kdecoration2][$i]
+library=org.kde.breeze
+theme=Breeze
+ButtonsOnLeft=
+ButtonsOnRight=IAX
+CloseOnDoubleClickOnMenu=false
+
 [Plugins]
 gsos_swirlEnabled=true
 scaleEnabled=false
@@ -141,7 +148,7 @@ fun on_update_status(msg) {
     for (i = 0; i < max_lines - 1; i++) {
         line_sprites[i].SetImage(line_sprites[i + 1].GetImage());
     }
-    # Subtle low-opacity background lines behind the GSOS logo
+    // Subtle low-opacity background lines behind the GSOS logo
     txt = Image.Text(msg, 0.55, 0.72, 0.92, 0.14, "Monospace 11");
     line_sprites[max_lines - 1].SetImage(txt);
 
@@ -226,7 +233,8 @@ Categories=System;Settings;
 GSOS_ABOUT_DESK
 
 # ---------- 4. GSOS identity & unique app names ----------
-cat > "$A/etc/os-release" <<'GSOS_OSREL'
+mkdir -p "$A/usr/lib"
+cat > "$A/usr/lib/os-release" <<'GSOS_OSREL'
 NAME="GSOS"
 PRETTY_NAME="GSOS"
 ID=gsos
@@ -235,6 +243,7 @@ BUILD_ID=rolling
 HOME_URL="https://gauravupreti4792-star.github.io/Gsos/"
 LOGO=gsos-launcher
 GSOS_OSREL
+ln -sf ../usr/lib/os-release "$A/etc/os-release"
 
 # ---------- 5. Bootloader silent flags & <2GB zstd-22 compression ----------
 SILENT_FLAGS="quiet splash loglevel=3 rd.udev.log_level=3 vt.global_cursor_default=0 nowatchdog"
@@ -258,7 +267,9 @@ if [ -f "$CUSTOM" ] && ! grep -q "# \[gsos-polish\] hook" "$CUSTOM"; then
   cat >> "$CUSTOM" <<'GSOS_CUSTOM_HOOK'
 
 # [gsos-polish] hook
-plymouth-set-default-theme gsos || true
+if command -v plymouth-set-default-theme >/dev/null 2>&1; then
+  plymouth-set-default-theme gsos || true
+fi
 
 declare -A GSOS_APP_RENAMES=(
   ["org.kde.dolphin.desktop"]="GSOS Files"
