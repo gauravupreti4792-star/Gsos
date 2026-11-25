@@ -3,13 +3,14 @@
 # no post-login splash, distinct icons, clean About GSOS, GSOS app names, Calamares &
 # GRUB GSOS branding, screenshot shortcuts, function keys, update app cleanup, full
 # open-source store (Flatpak + GNOME Software), automatic post-install shortcut
-# removal, and low-end hardware tuning.
+# removal, Windows compatibility (Wine + Winetricks), smooth motion, and low-end
+# hardware tuning.
 # Called with $P (archiso profile) and $A ($P/airootfs) set. Runs after gsos-update.sh.
 set -u
 : "${P:?P not set}" "${A:?A not set}"
 echo "[gsos-polish] start"
 
-for pkg in spectacle kglobalaccel kinfocenter zram-generator flatpak xdg-desktop-portal gnome-software; do
+for pkg in spectacle kglobalaccel kinfocenter zram-generator flatpak xdg-desktop-portal gnome-software wine winetricks; do
   grep -qx "$pkg" "$P/packages.x86_64" || printf '\n%s\n' "$pkg" >> "$P/packages.x86_64"
 done
 
@@ -177,7 +178,7 @@ contrastEnabled=false
 
 [Compositing]
 LatencyPolicy=Low
-AnimationSpeed=3
+AnimationSpeed=2
 GSOS_KWINRC
 cp "$A/etc/xdg/kwinrc" "$A/etc/skel/.config/kwinrc"
 
@@ -318,7 +319,7 @@ SILENT_FLAGS="quiet splash loglevel=3 rd.udev.log_level=3 vt.global_cursor_defau
 for cfg in "$P"/syslinux/*.cfg "$P"/efiboot/loader/entries/*.conf "$P"/grub/grub.cfg; do
   if [ -f "$cfg" ]; then
     sed -i -E "s/\b(quiet|splash|loglevel=[0-9]+|rd\.systemd\.show_status=[^ ]+|systemd\.show_status=[^ ]+|rd\.udev\.log_level=[0-9]+|udev\.log_level=[0-9]+|vt\.global_cursor_default=[0-9]+|nowatchdog)\b//g" "$cfg"
-    sed -i "s|archisobasedir=|${SILENT_FLAGS} archisobasedir=|g" "$cfg"
+    sed -i "s|archisobasedir=|${SILENT_FLAGS} archisobasedir=\vert{}g" "$cfg"
     sed -i 's/Fancy GNU\/Linux[^"'\'']*/GSOS/g; s/\bArch Linux\b/GSOS/g' "$cfg" || true
   fi
 done
@@ -333,7 +334,7 @@ fi
 
 # ---------- 6. Hook into customize_airootfs.sh ----------
 CUSTOM="$A/root/customize_airootfs.sh"
-if [ -f "$CUSTOM" ] && ! grep -q "# \[gsos-polish\] hook" "$CUSTOM"; then
+if [ -f "$CUSTOM" ] && ! grep -q "# [gsos-polish] hook" "$CUSTOM"; then
   cat >> "$CUSTOM" <<'GSOS_CUSTOM_HOOK'
 
 # [gsos-polish] hook
@@ -372,50 +373,4 @@ done
 if [ -f /etc/calamares/settings.conf ]; then
   mkdir -p /etc/calamares/branding/gsos
   if [ -d /etc/calamares/branding/default ] && [ -z "$(ls -A /etc/calamares/branding/gsos 2>/dev/null)" ]; then
-    cp -r /etc/calamares/branding/default/. /etc/calamares/branding/gsos/ || true
-  fi
-  sed -i 's/branding:[[:space:]]*.*/branding: gsos/' /etc/calamares/settings.conf || true
-  find /etc/calamares/branding/gsos -type f \( -name '*.desc' -o -name '*.conf' -o -name '*.qml' \) \
-    -exec sed -i 's/Fancy GNU\/Linux[^"'\'']*/GSOS/g; s/\bArch Linux\b/GSOS/g' {} + || true
-fi
-
-if [ -f /etc/calamares/modules/shellprocess.conf ]; then
-  if ! grep -q "gsos-remove-installer-icon.sh" /etc/calamares/modules/shellprocess.conf; then
-    printf '\n    - command: "/usr/local/bin/gsos-remove-installer-icon.sh"\n      timeout: 30\n' >> /etc/calamares/modules/shellprocess.conf
-  fi
-fi
-
-declare -A GSOS_APP_RENAMES=(
-  ["org.kde.dolphin.desktop"]="GSOS Files"
-  ["org.kde.konsole.desktop"]="GSOS Shell"
-  ["org.kde.kate.desktop"]="GSOS Notes"
-  ["org.kde.spectacle.desktop"]="GSOS Snap"
-  ["org.kde.ark.desktop"]="GSOS Archive"
-  ["org.kde.plasma-systemmonitor.desktop"]="GSOS Monitor"
-  ["systemsettings.desktop"]="GSOS Settings"
-)
-for app_file in "${!GSOS_APP_RENAMES[@]}"; do
-  if [ -f "/usr/share/applications/$app_file" ]; then
-    sed -i "s|^Name=.*|Name=${GSOS_APP_RENAMES[$app_file]}|" "/usr/share/applications/$app_file"
-  fi
-done
-
-rm -f \
-  /usr/share/applications/*gsos*update*.desktop \
-  /usr/share/applications/*update*app*.desktop \
-  /etc/xdg/autostart/*gsos*update*.desktop \
-  /etc/xdg/autostart/*update*app*.desktop \
-  /usr/local/bin/*gsos*update* \
-  /usr/local/bin/gsos-updater \
-  /usr/local/bin/*gsos*store*
-
-gtk-update-icon-cache -f -t /usr/share/icons/hicolor || true
-kbuildsycoca6 --noincremental || true
-
-rm -rf /usr/lib/firmware/{liquidio,netronome,mellanox,qlogic,bnx2x,cxgb4,qed}
-rm -rf /var/cache/pacman/pkg/* /usr/share/doc/* /usr/share/man/* /usr/share/gtk-doc/*
-find /usr/share/locale -mindepth 1 -maxdepth 1 ! -name 'en*' -exec rm -rf {} +
-GSOS_CUSTOM_HOOK
-fi
-
-echo "[gsos-polish] done"
+    cp -r /etc/calamares/branding/default/. /etc/calamares/branding/gsos/
