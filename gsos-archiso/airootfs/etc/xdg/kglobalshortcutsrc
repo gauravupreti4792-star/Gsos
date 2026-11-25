@@ -1,0 +1,16 @@
+[org.kde.spectacle.desktop]
+ActiveWindowScreenShot=Alt+Print,Alt+Print,Capture Current Window
+FullScreenScreenShot=Print,Print,Capture Entire Screen
+RectangularRegionScreenShot=Meta+Shift+S\tMeta+Shift+Print,Meta+Shift+S\tMeta+Shift+Print,Capture Rectangular Region
+_launch=Print,Print,Launch Spectacle
+
+[kwin]
+Expose=none,none,Toggle Present Windows (Current desktop)
+ExposeAll=none,none,Toggle Present Windows (All desktops)
+ExposeClass=none,none,Toggle Present Windows (Window class)
+Overview=none,none,Toggle Overview
+ShowDesktopGrid=none,none,Toggle Grid View
+Switch One Desktop Down=none,none,Switch One Desktop Down
+Switch One Desktop Up=none,none,Switch One Desktop Up
+Switch One Desktop to the Left=none,none,Switch One Desktop to the Left
+Switch One Desktop to the Right=none,none,Switch One Desktop to the Right
