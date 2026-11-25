@@ -5,13 +5,29 @@ set -u
 : "${P:?P not set}" "${A:?A not set}"
 echo "[gsos-theme] start"
 
-for pkg in papirus-icon-theme python-pyqt6 pciutils flatpak nbd; do
+for pkg in papirus-icon-theme python-pyqt6 pciutils flatpak nbd plymouth noto-fonts qt6-declarative qt6-5compat; do
   grep -qx "$pkg" "$P/packages.x86_64" || printf '\n%s\n' "$pkg" >> "$P/packages.x86_64"
 done
 
 G="$A/usr/share/gsos"
 S="$A/usr/share/plasma/look-and-feel/org.gsos.splash"
-mkdir -p "$G" "$S/contents/splash" "$A/etc/xdg/autostart" "$A/usr/local/bin" "$A/usr/share/applications" "$A/etc/calamares/modules" "$A/root"
+L="$A/usr/share/plasma/look-and-feel/org.kde.gsos.lockscreen"
+D="$A/usr/share/sddm/themes/gsos-dark"
+PT="$A/usr/share/plymouth/themes/gsos"
+mkdir -p \
+  "$G" \
+  "$S/contents/splash" \
+  "$L/contents/lockscreen" \
+  "$D" \
+  "$PT" \
+  "$A/etc/plymouth" \
+  "$A/etc/sddm.conf.d" \
+  "$A/etc/sysctl.d" \
+  "$A/etc/xdg/autostart" \
+  "$A/usr/local/bin" \
+  "$A/usr/share/applications" \
+  "$A/etc/calamares/modules" \
+  "$A/root"
 
 # ============================================================ 1) THE LOCKED THEME ([$i] = read-only for users)
 colors() {  # name alternate-background normal-background [nested-group]
@@ -120,6 +136,321 @@ GSOS_KWIN
 
 # System Settings > About shows the GSOS name and logo
 printf '[General]\nName=GSOS\nLogoPath=/usr/share/gsos/gsos-mark.svg\n' > "$A/etc/xdg/kcm-about-distrorc"
+
+# Custom GSOS Lock Screen (org.kde.gsos.lockscreen)
+cat > "$L/metadata.json" <<'GSOS_LOCK_META'
+{
+    "KPackageStructure": "Plasma/LookAndFeel",
+    "KPlugin": {
+        "Id": "org.kde.gsos.lockscreen",
+        "Name": "GSOS Lock Screen",
+        "Description": "Custom GSOS lock screen theme",
+        "Version": "1.0",
+        "EnabledByDefault": true
+    }
+}
+GSOS_LOCK_META
+
+cat > "$L/contents/lockscreen/LockScreen.qml" <<'GSOS_LOCK_QML'
+import QtQuick
+import QtQuick.Controls
+import QtQuick.Layouts
+
+Rectangle {
+    id: lockRoot
+    color: "#0c0f14"
+
+    property bool showPasswordPrompt: false
+
+    ColumnLayout {
+        anchors.centerIn: parent
+        spacing: 14
+
+        Label {
+            Layout.alignment: Qt.AlignHCenter
+            text: "GSOS"
+            color: "#38bdf8"
+            font.pixelSize: 26
+            font.bold: true
+        }
+
+        Label {
+            id: lockClock
+            Layout.alignment: Qt.AlignHCenter
+            text: Qt.formatDateTime(new Date(), "hh:mm")
+            color: "#f1f5f9"
+            font.pixelSize: 56
+            font.weight: Font.Light
+        }
+
+        Label {
+            Layout.alignment: Qt.AlignHCenter
+            text: Qt.formatDateTime(new Date(), "dddd, dd MMM yyyy")
+            color: "#94a3b8"
+            font.pixelSize: 16
+        }
+
+        Button {
+            visible: !lockRoot.showPasswordPrompt
+            Layout.alignment: Qt.AlignHCenter
+            text: "Unlock"
+            onClicked: {
+                lockRoot.showPasswordPrompt = true
+                unlockField.forceActiveFocus()
+            }
+        }
+
+        RowLayout {
+            visible: lockRoot.showPasswordPrompt
+            spacing: 8
+
+            TextField {
+                id: unlockField
+                placeholderText: "Password"
+                echoMode: TextInput.Password
+                onAccepted: authenticator.tryUnlock(text)
+            }
+
+            Button {
+                text: "Unlock"
+                onClicked: authenticator.tryUnlock(unlockField.text)
+            }
+        }
+    }
+
+    Timer {
+        interval: 15000
+        running: true
+        repeat: true
+        onTriggered: lockClock.text = Qt.formatDateTime(new Date(), "hh:mm")
+    }
+
+    Connections {
+        target: authenticator
+        function onSucceeded() {
+            unlockField.text = ""
+            lockRoot.showPasswordPrompt = false
+        }
+        function onFailed() {
+            unlockField.text = ""
+            unlockField.forceActiveFocus()
+        }
+    }
+}
+GSOS_LOCK_QML
+
+cat > "$A/etc/xdg/kscreenlockerrc" <<'GSOS_KSCREEN'
+[Daemon]
+Autolock=true
+LockOnResume=true
+Timeout=5
+
+[Greeter]
+Theme=org.kde.gsos.lockscreen
+GSOS_KSCREEN
+
+# Custom GSOS SDDM Login Theme (gsos-dark)
+cat > "$D/metadata.desktop" <<'GSOS_SDDM_META'
+[SddmGreeterTheme]
+Name=GSOS Dark
+Description=Custom GSOS login theme
+Author=GSOS Project
+Version=1.0
+MainScript=Main.qml
+ConfigFile=theme.conf
+GSOS_SDDM_META
+
+cat > "$D/theme.conf" <<'GSOS_SDDM_CONF'
+[General]
+backgroundColor=#0c0f14
+accentColor=#38bdf8
+textColor=#f1f5f9
+mutedColor=#94a3b8
+GSOS_SDDM_CONF
+
+cat > "$D/Main.qml" <<'GSOS_SDDM_QML'
+import QtQuick 2.15
+import QtQuick.Controls 2.15
+import QtQuick.Layouts 1.15
+import SddmComponents 2.0
+
+Rectangle {
+    id: root
+    width: 1920
+    height: 1080
+    color: config.backgroundColor || "#0c0f14"
+
+    property string textColor: config.textColor || "#f1f5f9"
+    property string mutedColor: config.mutedColor || "#94a3b8"
+    property string accentColor: config.accentColor || "#38bdf8"
+    property int selectedIndex: userModel.lastIndex >= 0 ? userModel.lastIndex : 0
+
+    TextConstants { id: textConstants }
+
+    Connections {
+        target: sddm
+        function onLoginSucceeded() {}
+        function onLoginFailed() {
+            statusLabel.text = textConstants.loginFailed
+            passwordInput.text = ""
+            passwordInput.forceActiveFocus()
+        }
+    }
+
+    RowLayout {
+        anchors.top: parent.top
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.margins: 24
+        spacing: 12
+
+        ComboBox {
+            id: sessionBox
+            model: sessionModel
+            textRole: "name"
+            currentIndex: sessionModel.lastIndex >= 0 ? sessionModel.lastIndex : 0
+        }
+
+        Item { Layout.fillWidth: true }
+
+        Button {
+            text: textConstants.reboot
+            onClicked: sddm.reboot()
+        }
+        Button {
+            text: textConstants.shutdown
+            onClicked: sddm.powerOff()
+        }
+    }
+
+    ColumnLayout {
+        anchors.centerIn: parent
+        width: 360
+        spacing: 16
+
+        Label {
+            Layout.alignment: Qt.AlignHCenter
+            text: "GSOS"
+            color: root.accentColor
+            font.pixelSize: 34
+            font.bold: true
+        }
+
+        Label {
+            id: clockLabel
+            Layout.alignment: Qt.AlignHCenter
+            text: Qt.formatDateTime(new Date(), "hh:mm")
+            color: root.textColor
+            font.pixelSize: 48
+            font.weight: Font.Light
+        }
+
+        Label {
+            Layout.alignment: Qt.AlignHCenter
+            text: Qt.formatDateTime(new Date(), "dddd, dd MMM")
+            color: root.mutedColor
+            font.pixelSize: 15
+        }
+
+        ComboBox {
+            id: userBox
+            Layout.fillWidth: true
+            model: userModel
+            textRole: "name"
+            currentIndex: root.selectedIndex
+            onActivated: function(idx) { root.selectedIndex = idx }
+        }
+
+        TextField {
+            id: passwordInput
+            Layout.fillWidth: true
+            placeholderText: textConstants.password
+            echoMode: TextInput.Password
+            focus: true
+            onAccepted: submitLogin()
+        }
+
+        Button {
+            Layout.fillWidth: true
+            text: textConstants.login
+            highlighted: true
+            onClicked: submitLogin()
+        }
+
+        Label {
+            id: statusLabel
+            Layout.alignment: Qt.AlignHCenter
+            text: ""
+            color: "#f87171"
+            font.pixelSize: 13
+        }
+    }
+
+    Timer {
+        interval: 15000
+        running: true
+        repeat: true
+        onTriggered: clockLabel.text = Qt.formatDateTime(new Date(), "hh:mm")
+    }
+
+    function submitLogin() {
+        var username = userBox.currentText
+        if (!username && userModel.count > 0) {
+            username = userModel.data(userModel.index(root.selectedIndex, 0), Qt.UserRole + 1)
+        }
+        sddm.login(username, passwordInput.text, sessionBox.currentIndex)
+    }
+
+    Component.onCompleted: passwordInput.forceActiveFocus()
+}
+GSOS_SDDM_QML
+
+cat > "$A/etc/sddm.conf.d/gsos.conf" <<'GSOS_SDDM_CFG'
+[Theme]
+Current=gsos-dark
+CursorTheme=breeze_cursors
+
+[General]
+InputMethod=qtvirtualkeyboard
+GSOS_SDDM_CFG
+
+# Plymouth GSOS theme (always shows centered "GSOS" text on dark background) & quiet printk
+cat > "$A/etc/plymouth/plymouthd.conf" <<'GSOS_PLY_CONF'
+[Daemon]
+Theme=gsos
+ShowDelay=0
+DeviceTimeout=8
+GSOS_PLY_CONF
+
+cat > "$PT/gsos.plymouth" <<'GSOS_PLY_THEME'
+[Plymouth Theme]
+Name=GSOS
+Description=Centered GSOS text splash on dark background
+ModuleName=script
+
+[script]
+ImageDir=/usr/share/plymouth/themes/gsos
+ScriptFile=/usr/share/plymouth/themes/gsos/gsos.script
+GSOS_PLY_THEME
+
+cat > "$PT/gsos.script" <<'GSOS_PLY_SCRIPT'
+Window.SetBackgroundTopColor(0.05, 0.06, 0.08);
+Window.SetBackgroundBottomColor(0.05, 0.06, 0.08);
+
+screen_w = Window.GetWidth();
+screen_h = Window.GetHeight();
+
+title = Image.Text("GSOS", 0.95, 0.96, 0.98, 1, "Sans Bold 42");
+
+x = (screen_w - title.GetWidth()) / 2;
+y = (screen_h - title.GetHeight()) / 2;
+
+sprite = Sprite(title);
+sprite.SetPosition(x, y, 10);
+sprite.SetOpacity(1);
+GSOS_PLY_SCRIPT
+
+printf 'kernel.printk = 3 3 3 3\n' > "$A/etc/sysctl.d/20-quiet-printk.conf"
 
 # ============================================================ 2) WALLPAPER AND LOGOS (text SVG)
 cat > "$G/wallpaper.svg" <<'GSOS_WP'
@@ -744,9 +1075,17 @@ if [[ -d /usr/share/calamares/branding/default && -f /etc/calamares/settings.con
   sed -i 's/^branding:.*/branding: gsos/' /etc/calamares/settings.conf
 fi
 
-# login screen background
-if [[ -d /usr/share/sddm/themes/breeze ]]; then
-  printf '[General]\nbackground=/usr/share/gsos/wallpaper.svg\ntype=image\n' > /usr/share/sddm/themes/breeze/theme.conf.user
+# Plymouth theme, initramfs, and GRUB setup
+if command -v plymouth-set-default-theme >/dev/null 2>&1; then
+  plymouth-set-default-theme gsos || true
+fi
+
+if command -v mkinitcpio >/dev/null 2>&1; then
+  mkinitcpio -P || true
+fi
+
+if command -v grub-mkconfig >/dev/null 2>&1 && [[ -d /boot/grub ]]; then
+  grub-mkconfig -o /boot/grub/grub.cfg || true
 fi
 
 # live user (passwordless sudo, live session only)
