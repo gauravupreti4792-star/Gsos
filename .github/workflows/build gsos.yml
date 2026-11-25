@@ -137,8 +137,8 @@ jobs:
             -exec sed -i 's/\r$//' {} +
           sed -i 's/\r$//' "$P/packages.x86_64"
 
-          # Ensure required Plymouth, Qt6, and Spectacle packages are present
-          for pkg in plymouth qt6-declarative qt6-5compat spectacle kglobalaccel; do
+          # Ensure required Plymouth, Qt6, Spectacle, store, swap, and Wine packages are present
+          for pkg in plymouth qt6-declarative qt6-5compat spectacle kglobalaccel flatpak gnome-software zram-generator wine winetricks; do
             grep -qx "$pkg" "$P/packages.x86_64" || printf '\n%s\n' "$pkg" >> "$P/packages.x86_64"
           done
 
@@ -212,8 +212,8 @@ jobs:
             fi
           done
 
-          # Enforce < 2GB zstd-22 1M SquashFS compression after all scripts run
-          sed -i "s|^airootfs_image_tool_options=.*|airootfs_image_tool_options=('-comp' 'zstd' '-Xcompression-level' '22' '-b' '1M')|" "$P/profiledef.sh"
+          # Use standard zstd compression after all scripts run for low-end hardware stability
+          sed -i "s|^airootfs_image_tool_options=.*|airootfs_image_tool_options=('-comp' 'zstd' '-b' '1M')|" "$P/profiledef.sh"
           grep -n 'airootfs_image_tool_options' "$P/profiledef.sh"
 
           # ---------- 5) Build the ISO ----------
