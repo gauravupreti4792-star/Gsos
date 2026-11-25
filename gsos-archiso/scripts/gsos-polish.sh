@@ -1,11 +1,15 @@
 #!/usr/bin/env bash
 # GSOS final polish bundle: swirl window animation, layered Plymouth boot (logo + subtle
 # background telemetry), no post-login splash, distinct icons, clean About GSOS, GSOS app names,
-# and <2GB ISO compression/trimming.
+# screenshot shortcuts, function keys, and <2GB ISO compression/trimming.
 # Called with $P (archiso profile) and $A ($P/airootfs) set. Runs after gsos-update.sh.
 set -u
 : "${P:?P not set}" "${A:?A not set}"
 echo "[gsos-polish] start"
+
+for pkg in spectacle kglobalaccel; do
+  grep -qx "$pkg" "$P/packages.x86_64" || printf '\n%s\n' "$pkg" >> "$P/packages.x86_64"
+done
 
 mkdir -p \
   "$A/etc/xdg" \
@@ -232,7 +236,7 @@ Icon=gsos-about
 Categories=System;Settings;
 GSOS_ABOUT_DESK
 
-# ---------- 4. GSOS identity & unique app names ----------
+# ---------- 4. GSOS identity, unique app names, screenshots & function keys ----------
 mkdir -p "$A/usr/lib"
 cat > "$A/usr/lib/os-release" <<'GSOS_OSREL'
 NAME="GSOS"
@@ -244,6 +248,26 @@ HOME_URL="https://gauravupreti4792-star.github.io/Gsos/"
 LOGO=gsos-launcher
 GSOS_OSREL
 ln -sf ../usr/lib/os-release "$A/etc/os-release"
+
+cat > "$A/etc/xdg/kglobalshortcutsrc" <<'GSOS_SHORTCUTS'
+[org.kde.spectacle.desktop]
+ActiveWindowScreenShot=Alt+Print,Alt+Print,Capture Current Window
+FullScreenScreenShot=Print,Print,Capture Entire Screen
+RectangularRegionScreenShot=Meta+Shift+S\tMeta+Shift+Print,Meta+Shift+S\tMeta+Shift+Print,Capture Rectangular Region
+_launch=Print,Print,Launch Spectacle
+
+[kwin]
+Expose=none,none,Toggle Present Windows (Current desktop)
+ExposeAll=none,none,Toggle Present Windows (All desktops)
+ExposeClass=none,none,Toggle Present Windows (Window class)
+Overview=none,none,Toggle Overview
+ShowDesktopGrid=none,none,Toggle Grid View
+Switch One Desktop Down=none,none,Switch One Desktop Down
+Switch One Desktop Up=none,none,Switch One Desktop Up
+Switch One Desktop to the Left=none,none,Switch One Desktop to the Left
+Switch One Desktop to the Right=none,none,Switch One Desktop to the Right
+GSOS_SHORTCUTS
+cp "$A/etc/xdg/kglobalshortcutsrc" "$A/etc/skel/.config/kglobalshortcutsrc"
 
 # ---------- 5. Bootloader silent flags & <2GB zstd-22 compression ----------
 SILENT_FLAGS="quiet splash loglevel=3 rd.udev.log_level=3 vt.global_cursor_default=0 nowatchdog"
