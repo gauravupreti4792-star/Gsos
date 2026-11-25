@@ -236,19 +236,7 @@ Icon=gsos-about
 Categories=System;Settings;
 GSOS_ABOUT_DESK
 
-# ---------- 4. GSOS identity, unique app names, screenshots & function keys ----------
-mkdir -p "$A/usr/lib"
-cat > "$A/usr/lib/os-release" <<'GSOS_OSREL'
-NAME="GSOS"
-PRETTY_NAME="GSOS"
-ID=gsos
-ID_LIKE=arch
-BUILD_ID=rolling
-HOME_URL="https://gauravupreti4792-star.github.io/Gsos/"
-LOGO=gsos-launcher
-GSOS_OSREL
-ln -sf ../usr/lib/os-release "$A/etc/os-release"
-
+# ---------- 4. Screenshots & function keys (os-release is written inside customize_airootfs.sh) ----------
 cat > "$A/etc/xdg/kglobalshortcutsrc" <<'GSOS_SHORTCUTS'
 [org.kde.spectacle.desktop]
 ActiveWindowScreenShot=Alt+Print,Alt+Print,Capture Current Window
@@ -264,59 +252,4 @@ Overview=none,none,Toggle Overview
 ShowDesktopGrid=none,none,Toggle Grid View
 Switch One Desktop Down=none,none,Switch One Desktop Down
 Switch One Desktop Up=none,none,Switch One Desktop Up
-Switch One Desktop to the Left=none,none,Switch One Desktop to the Left
-Switch One Desktop to the Right=none,none,Switch One Desktop to the Right
-GSOS_SHORTCUTS
-cp "$A/etc/xdg/kglobalshortcutsrc" "$A/etc/skel/.config/kglobalshortcutsrc"
-
-# ---------- 5. Bootloader silent flags & <2GB zstd-22 compression ----------
-SILENT_FLAGS="quiet splash loglevel=3 rd.udev.log_level=3 vt.global_cursor_default=0 nowatchdog"
-for cfg in "$P"/syslinux/*.cfg "$P"/efiboot/loader/entries/*.conf "$P"/grub/grub.cfg; do
-  if [ -f "$cfg" ] && ! grep -q "vt.global_cursor_default=0" "$cfg"; then
-    sed -i "s|archisobasedir=|${SILENT_FLAGS} archisobasedir=|g" "$cfg" || true
-  fi
-done
-
-if [ -f "$P/profiledef.sh" ]; then
-  if grep -q "^airootfs_image_tool_options=" "$P/profiledef.sh"; then
-    sed -i "s|^airootfs_image_tool_options=.*|airootfs_image_tool_options=('-comp' 'zstd' '-Xcompression-level' '22' '-b' '1M')|" "$P/profiledef.sh"
-  else
-    printf "\nairootfs_image_tool_options=('-comp' 'zstd' '-Xcompression-level' '22' '-b' '1M')\n" >> "$P/profiledef.sh"
-  fi
-fi
-
-# ---------- 6. Hook into customize_airootfs.sh ----------
-CUSTOM="$A/root/customize_airootfs.sh"
-if [ -f "$CUSTOM" ] && ! grep -q "# \[gsos-polish\] hook" "$CUSTOM"; then
-  cat >> "$CUSTOM" <<'GSOS_CUSTOM_HOOK'
-
-# [gsos-polish] hook
-if command -v plymouth-set-default-theme >/dev/null 2>&1; then
-  plymouth-set-default-theme gsos || true
-fi
-
-declare -A GSOS_APP_RENAMES=(
-  ["org.kde.dolphin.desktop"]="GSOS Files"
-  ["org.kde.konsole.desktop"]="GSOS Shell"
-  ["org.kde.kate.desktop"]="GSOS Notes"
-  ["org.kde.spectacle.desktop"]="GSOS Snap"
-  ["org.kde.ark.desktop"]="GSOS Archive"
-  ["org.kde.plasma-systemmonitor.desktop"]="GSOS Monitor"
-  ["systemsettings.desktop"]="GSOS Settings"
-)
-for app_file in "${!GSOS_APP_RENAMES[@]}"; do
-  if [ -f "/usr/share/applications/$app_file" ]; then
-    sed -i "s|^Name=.*|Name=${GSOS_APP_RENAMES[$app_file]}|" "/usr/share/applications/$app_file"
-  fi
-done
-
-gtk-update-icon-cache -f -t /usr/share/icons/hicolor || true
-kbuildsycoca6 --noincremental || true
-
-rm -rf /usr/lib/firmware/{liquidio,netronome,mellanox,qlogic,bnx2x,cxgb4,qed}
-rm -rf /var/cache/pacman/pkg/* /usr/share/doc/* /usr/share/man/* /usr/share/gtk-doc/*
-find /usr/share/locale -mindepth 1 -maxdepth 1 ! -name 'en*' -exec rm -rf {} +
-GSOS_CUSTOM_HOOK
-fi
-
-echo "[gsos-polish] done"
+Switch One
