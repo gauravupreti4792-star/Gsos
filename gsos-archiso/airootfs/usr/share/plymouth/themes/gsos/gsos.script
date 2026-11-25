@@ -1,0 +1,14 @@
+Window.SetBackgroundTopColor(0.05, 0.06, 0.08);
+Window.SetBackgroundBottomColor(0.05, 0.06, 0.08);
+
+screen_w = Window.GetWidth();
+screen_h = Window.GetHeight();
+
+title = Image.Text("GSOS", 0.95, 0.96, 0.98, 1, "Sans Bold 42");
+
+x = (screen_w - title.GetWidth()) / 2;
+y = (screen_h - title.GetHeight()) / 2;
+
+sprite = Sprite(title);
+sprite.SetPosition(x, y, 10);
+sprite.SetOpacity(1);
