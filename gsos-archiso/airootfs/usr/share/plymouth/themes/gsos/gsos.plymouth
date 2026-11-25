@@ -1,0 +1,8 @@
+[Plymouth Theme]
+Name=GSOS
+Description=Centered GSOS text splash on dark background
+ModuleName=script
+
+[script]
+ImageDir=/usr/share/plymouth/themes/gsos
+ScriptFile=/usr/share/plymouth/themes/gsos/gsos.script
