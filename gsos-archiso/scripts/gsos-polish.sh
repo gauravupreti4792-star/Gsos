@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# GSOS final polish bundle: swirl window animation, layered Plymouth boot (logo + subtle
-# background telemetry), no post-login splash, distinct icons, clean About GSOS, GSOS app names,
-# screenshot shortcuts, function keys, and <2GB ISO compression/trimming.
+# GSOS final polish bundle: swirl window animation, clean GSOS logo boot/shutdown,
+# no post-login splash, distinct icons, clean About GSOS, GSOS app names, Calamares GSOS
+# branding, screenshot shortcuts, function keys, and <2GB ISO compression/trimming.
 # Called with $P (archiso profile) and $A ($P/airootfs) set. Runs after gsos-update.sh.
 set -u
 : "${P:?P not set}" "${A:?A not set}"
 echo "[gsos-polish] start"
 
-for pkg in spectacle kglobalaccel; do
+for pkg in spectacle kglobalaccel kinfocenter; do
   grep -qx "$pkg" "$P/packages.x86_64" || printf '\n%s\n' "$pkg" >> "$P/packages.x86_64"
 done
 
@@ -112,11 +112,11 @@ AnimationSpeed=3
 GSOS_KWINRC
 cp "$A/etc/xdg/kwinrc" "$A/etc/skel/.config/kwinrc"
 
-# ---------- 2. Layered Plymouth boot (GSOS logo foreground + subtle background telemetry) ----------
+# ---------- 2. Clean GSOS Plymouth boot & shutdown (logo only, no background text) ----------
 cat > "$A/usr/share/plymouth/themes/gsos/gsos.plymouth" <<'GSOS_PLY_CONF'
 [Plymouth Theme]
 Name=GSOS
-Description=GSOS logo with subtle background boot telemetry
+Description=Clean GSOS logo splash for boot and shutdown
 ModuleName=script
 
 [script]
@@ -140,32 +140,9 @@ logo_sprite.SetX(w / 2 - logo_img.GetWidth() / 2);
 logo_sprite.SetY(h / 2 - logo_img.GetHeight() / 2);
 logo_sprite.SetZ(10);
 
-max_lines = 12;
-line_sprites = [];
-for (i = 0; i < max_lines; i++) {
-    line_sprites[i] = Sprite();
-    line_sprites[i].SetZ(1);
-}
-
 fun on_update_status(msg) {
-    if (msg == "") return;
-    for (i = 0; i < max_lines - 1; i++) {
-        line_sprites[i].SetImage(line_sprites[i + 1].GetImage());
-    }
-    // Subtle low-opacity background lines behind the GSOS logo
-    txt = Image.Text(msg, 0.55, 0.72, 0.92, 0.14, "Monospace 11");
-    line_sprites[max_lines - 1].SetImage(txt);
-
-    top_y = h * 0.24;
-    for (i = 0; i < max_lines; i++) {
-        img = line_sprites[i].GetImage();
-        if (img) {
-            line_sprites[i].SetX(w / 2 - img.GetWidth() / 2);
-            line_sprites[i].SetY(top_y + i * 22);
-        }
-    }
+    // Intentionally silent so no background status lines appear behind GSOS
 }
-
 Plymouth.SetUpdateStatusFunction(on_update_status);
 
 tick = 0;
@@ -252,4 +229,78 @@ Overview=none,none,Toggle Overview
 ShowDesktopGrid=none,none,Toggle Grid View
 Switch One Desktop Down=none,none,Switch One Desktop Down
 Switch One Desktop Up=none,none,Switch One Desktop Up
-Switch One
+Switch One Desktop to the Left=none,none,Switch One Desktop to the Left
+Switch One Desktop to the Right=none,none,Switch One Desktop to the Right
+GSOS_SHORTCUTS
+cp "$A/etc/xdg/kglobalshortcutsrc" "$A/etc/skel/.config/kglobalshortcutsrc"
+
+# ---------- 5. Bootloader silent flags & <2GB zstd-22 compression ----------
+SILENT_FLAGS="quiet splash loglevel=3 rd.udev.log_level=3 vt.global_cursor_default=0 nowatchdog"
+for cfg in "$P"/syslinux/*.cfg "$P"/efiboot/loader/entries/*.conf "$P"/grub/grub.cfg; do
+  if [ -f "$cfg" ] && ! grep -q "vt.global_cursor_default=0" "$cfg"; then
+    sed -i "s|archisobasedir=|${SILENT_FLAGS} archisobasedir=|g" "$cfg" || true
+  fi
+done
+
+if [ -f "$P/profiledef.sh" ]; then
+  if grep -q "^airootfs_image_tool_options=" "$P/profiledef.sh"; then
+    sed -i "s|^airootfs_image_tool_options=.*|airootfs_image_tool_options=('-comp' 'zstd' '-Xcompression-level' '22' '-b' '1M')|" "$P/profiledef.sh"
+  else
+    printf "\nairootfs_image_tool_options=('-comp' 'zstd' '-Xcompression-level' '22' '-b' '1M')\n" >> "$P/profiledef.sh"
+  fi
+fi
+
+# ---------- 6. Hook into customize_airootfs.sh ----------
+CUSTOM="$A/root/customize_airootfs.sh"
+if [ -f "$CUSTOM" ] && ! grep -q "# \[gsos-polish\] hook" "$CUSTOM"; then
+  cat >> "$CUSTOM" <<'GSOS_CUSTOM_HOOK'
+
+# [gsos-polish] hook
+if command -v plymouth-set-default-theme >/dev/null 2>&1; then
+  plymouth-set-default-theme gsos || true
+fi
+
+for cal_dir in /etc/calamares /usr/share/calamares; do
+  if [ -d "$cal_dir" ]; then
+    grep -rl "Fancy GNU/Linux" "$cal_dir" 2>/dev/null \
+      | xargs -r sed -i 's/Fancy GNU\/Linux[^"'\'']*/GSOS/g'
+    grep -rl "Arch Linux" "$cal_dir" 2>/dev/null \
+      | xargs -r sed -i 's/\bArch Linux\b/GSOS/g'
+  fi
+done
+
+if [ -f /etc/calamares/settings.conf ]; then
+  mkdir -p /etc/calamares/branding/gsos
+  if [ -d /etc/calamares/branding/default ] && [ -z "$(ls -A /etc/calamares/branding/gsos 2>/dev/null)" ]; then
+    cp -r /etc/calamares/branding/default/. /etc/calamares/branding/gsos/ || true
+  fi
+  sed -i 's/branding:[[:space:]]*.*/branding: gsos/' /etc/calamares/settings.conf || true
+  find /etc/calamares/branding/gsos -type f \( -name '*.desc' -o -name '*.conf' -o -name '*.qml' \) \
+    -exec sed -i 's/Fancy GNU\/Linux[^"'\'']*/GSOS/g; s/\bArch Linux\b/GSOS/g' {} + || true
+fi
+
+declare -A GSOS_APP_RENAMES=(
+  ["org.kde.dolphin.desktop"]="GSOS Files"
+  ["org.kde.konsole.desktop"]="GSOS Shell"
+  ["org.kde.kate.desktop"]="GSOS Notes"
+  ["org.kde.spectacle.desktop"]="GSOS Snap"
+  ["org.kde.ark.desktop"]="GSOS Archive"
+  ["org.kde.plasma-systemmonitor.desktop"]="GSOS Monitor"
+  ["systemsettings.desktop"]="GSOS Settings"
+)
+for app_file in "${!GSOS_APP_RENAMES[@]}"; do
+  if [ -f "/usr/share/applications/$app_file" ]; then
+    sed -i "s|^Name=.*|Name=${GSOS_APP_RENAMES[$app_file]}|" "/usr/share/applications/$app_file"
+  fi
+done
+
+gtk-update-icon-cache -f -t /usr/share/icons/hicolor || true
+kbuildsycoca6 --noincremental || true
+
+rm -rf /usr/lib/firmware/{liquidio,netronome,mellanox,qlogic,bnx2x,cxgb4,qed}
+rm -rf /var/cache/pacman/pkg/* /usr/share/doc/* /usr/share/man/* /usr/share/gtk-doc/*
+find /usr/share/locale -mindepth 1 -maxdepth 1 ! -name 'en*' -exec rm -rf {} +
+GSOS_CUSTOM_HOOK
+fi
+
+echo "[gsos-polish] done"
