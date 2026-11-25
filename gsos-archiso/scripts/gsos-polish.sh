@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# GSOS final polish bundle: swirl window animation, zero-text GSOS logo boot/shutdown,
-# no post-login splash, distinct icons, clean About GSOS, GSOS app names, Calamares GSOS
-# branding, screenshot shortcuts, function keys, and <2GB ISO compression/trimming.
+# GSOS final polish bundle: swirl window animation, clean GSOS logo boot/shutdown,
+# no post-login splash, distinct icons, clean About GSOS, GSOS app names, Calamares &
+# GRUB GSOS branding, screenshot shortcuts, function keys, and <2GB ISO compression/trimming.
 # Called with $P (archiso profile) and $A ($P/airootfs) set. Runs after gsos-update.sh.
 set -u
 : "${P:?P not set}" "${A:?A not set}"
@@ -12,6 +12,7 @@ for pkg in spectacle kglobalaccel kinfocenter; do
 done
 
 mkdir -p \
+  "$A/etc/default" \
   "$A/etc/plymouth" \
   "$A/etc/sysctl.d" \
   "$A/etc/xdg" \
@@ -114,7 +115,7 @@ AnimationSpeed=3
 GSOS_KWINRC
 cp "$A/etc/xdg/kwinrc" "$A/etc/skel/.config/kwinrc"
 
-# ---------- 2. Strict Zero-Text GSOS Plymouth Boot & Shutdown ----------
+# ---------- 2. GSOS Plymouth Splash & Boot/Shutdown Tuning ----------
 cat > "$A/etc/plymouth/plymouthd.conf" <<'GSOS_PLYD'
 [Daemon]
 Theme=gsos
@@ -162,7 +163,7 @@ Plymouth.SetRefreshFunction(on_refresh);
 GSOS_PLY_SCRIPT
 
 cat > "$A/etc/sysctl.d/20-quiet-printk.conf" <<'GSOS_PRINTK'
-kernel.printk = 0 0 0 0
+kernel.printk = 3 3 1 3
 GSOS_PRINTK
 
 # Prevent post-login KSplash replay after password entry
@@ -225,7 +226,7 @@ Icon=gsos-about
 Categories=System;Settings;
 GSOS_ABOUT_DESK
 
-# ---------- 4. Screenshots & function keys (os-release is written inside customize_airootfs.sh) ----------
+# ---------- 4. Screenshots & function keys ----------
 cat > "$A/etc/xdg/kglobalshortcutsrc" <<'GSOS_SHORTCUTS'
 [org.kde.spectacle.desktop]
 ActiveWindowScreenShot=Alt+Print,Alt+Print,Capture Current Window
@@ -247,11 +248,12 @@ GSOS_SHORTCUTS
 cp "$A/etc/xdg/kglobalshortcutsrc" "$A/etc/skel/.config/kglobalshortcutsrc"
 
 # ---------- 5. Bootloader silent flags & <2GB zstd-22 compression ----------
-SILENT_FLAGS="quiet splash loglevel=0 rd.systemd.show_status=false systemd.show_status=false rd.udev.log_level=0 udev.log_level=0 vt.global_cursor_default=0 nowatchdog"
+SILENT_FLAGS="quiet splash loglevel=3 rd.udev.log_level=3 vt.global_cursor_default=0 nowatchdog"
 for cfg in "$P"/syslinux/*.cfg "$P"/efiboot/loader/entries/*.conf "$P"/grub/grub.cfg; do
   if [ -f "$cfg" ]; then
     sed -i -E "s/\b(quiet|splash|loglevel=[0-9]+|rd\.systemd\.show_status=[^ ]+|systemd\.show_status=[^ ]+|rd\.udev\.log_level=[0-9]+|udev\.log_level=[0-9]+|vt\.global_cursor_default=[0-9]+|nowatchdog)\b//g" "$cfg"
     sed -i "s|archisobasedir=|${SILENT_FLAGS} archisobasedir=|g" "$cfg"
+    sed -i 's/Fancy GNU\/Linux[^"'\'']*/GSOS/g; s/\bArch Linux\b/GSOS/g' "$cfg" || true
   fi
 done
 
@@ -269,7 +271,20 @@ if [ -f "$CUSTOM" ] && ! grep -q "# \[gsos-polish\] hook" "$CUSTOM"; then
   cat >> "$CUSTOM" <<'GSOS_CUSTOM_HOOK'
 
 # [gsos-polish] hook
-systemctl mask getty@tty1.service || true
+if [ -f /etc/os-release ]; then
+  sed -i 's/^NAME=.*/NAME="GSOS"/; s/^PRETTY_NAME=.*/PRETTY_NAME="GSOS"/; s/^ID=.*/ID=gsos/' /etc/os-release || true
+fi
+
+if [ -f /etc/default/grub ]; then
+  if grep -q '^GRUB_DISTRIBUTOR=' /etc/default/grub; then
+    sed -i 's/^GRUB_DISTRIBUTOR=.*/GRUB_DISTRIBUTOR="GSOS"/' /etc/default/grub
+  else
+    printf '\nGRUB_DISTRIBUTOR="GSOS"\n' >> /etc/default/grub
+  fi
+  if grep -q '^GRUB_CMDLINE_LINUX_DEFAULT=' /etc/default/grub; then
+    sed -i 's/^GRUB_CMDLINE_LINUX_DEFAULT=.*/GRUB_CMDLINE_LINUX_DEFAULT="quiet splash loglevel=3 rd.udev.log_level=3 vt.global_cursor_default=0 nowatchdog"/' /etc/default/grub
+  fi
+fi
 
 if command -v plymouth-set-default-theme >/dev/null 2>&1; then
   plymouth-set-default-theme gsos || true
