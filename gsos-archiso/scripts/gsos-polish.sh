@@ -1,35 +1,39 @@
 #!/usr/bin/env bash
 # GSOS final polish bundle: swirl window animation, clean GSOS logo boot/shutdown,
 # no post-login splash, distinct icons, clean About GSOS, GSOS app names, Calamares &
-# GRUB GSOS branding, screenshot shortcuts, function keys, update app cleanup, and
-# <2GB ISO compression/trimming.
+# GRUB GSOS branding, screenshot shortcuts, function keys, update app cleanup, full
+# open-source store (Flatpak + GNOME Software), automatic post-install shortcut
+# removal, and low-end hardware tuning.
 # Called with $P (archiso profile) and $A ($P/airootfs) set. Runs after gsos-update.sh.
 set -u
 : "${P:?P not set}" "${A:?A not set}"
 echo "[gsos-polish] start"
 
-for pkg in spectacle kglobalaccel kinfocenter; do
+for pkg in spectacle kglobalaccel kinfocenter zram-generator flatpak xdg-desktop-portal gnome-software; do
   grep -qx "$pkg" "$P/packages.x86_64" || printf '\n%s\n' "$pkg" >> "$P/packages.x86_64"
 done
 
-# ---------- Remove broken Update app (profile & airootfs) ----------
+# ---------- Remove broken Update app & any limited 20-app store ----------
 if [ -f "$P/packages.x86_64" ]; then
-  sed -i -E '/^(gsos-update|update-manager|plasma-discover)$/d' "$P/packages.x86_64"
+  sed -i -E '/^(gsos-update|update-manager|plasma-discover|gsos-store|gsos-appstore)$/d' "$P/packages.x86_64"
 fi
 
 rm -f \
   "$A"/usr/share/applications/*gsos*update*.desktop \
   "$A"/usr/share/applications/*update*app*.desktop \
+  "$A"/usr/share/applications/*gsos*store*.desktop \
   "$A"/etc/xdg/autostart/*gsos*update*.desktop \
   "$A"/etc/xdg/autostart/*update*app*.desktop \
   "$A"/etc/skel/.config/autostart/*gsos*update*.desktop \
   "$A"/usr/local/bin/*gsos*update* \
-  "$A"/usr/local/bin/gsos-updater
+  "$A"/usr/local/bin/gsos-updater \
+  "$A"/usr/local/bin/*gsos*store*
 
 mkdir -p \
   "$A/etc/default" \
   "$A/etc/plymouth" \
   "$A/etc/sysctl.d" \
+  "$A/etc/systemd/system" \
   "$A/etc/xdg" \
   "$A/etc/skel/.config" \
   "$A/usr/local/bin" \
@@ -37,6 +41,53 @@ mkdir -p \
   "$A/usr/share/plymouth/themes/gsos" \
   "$A/usr/share/icons/hicolor/scalable/apps" \
   "$A/usr/share/applications"
+
+# ---------- Post-install shortcut cleanup (only runs when installed, not on live ISO) ----------
+cat > "$A/usr/local/bin/gsos-remove-installer-icon.sh" <<'GSOS_CLEAN_INSTALLER'
+#!/usr/bin/env bash
+set -u
+
+if grep -qE '(^|[[:space:]])(archiso|boot=live|toram)([[:space:]]|$)' /proc/cmdline 2>/dev/null; then
+  exit 0
+fi
+
+rm -f \
+  /usr/share/applications/*calamares*.desktop \
+  /usr/share/applications/*install*gsos*.desktop \
+  /usr/share/applications/*gsos*install*.desktop \
+  /etc/xdg/autostart/*calamares*.desktop \
+  /etc/skel/Desktop/*calamares*.desktop \
+  /etc/skel/Desktop/*install*.desktop \
+  /home/*/Desktop/*calamares*.desktop \
+  /home/*/Desktop/*install*.desktop 2>/dev/null || true
+
+gtk-update-icon-cache -f -t /usr/share/icons/hicolor 2>/dev/null || true
+kbuildsycoca6 --noincremental 2>/dev/null || true
+GSOS_CLEAN_INSTALLER
+chmod +x "$A/usr/local/bin/gsos-remove-installer-icon.sh"
+
+cat > "$A/etc/systemd/system/gsos-post-install-cleanup.service" <<'GSOS_CLEAN_UNIT'
+[Unit]
+Description=GSOS one-time post-install installer shortcut cleanup
+After=local-fs.target
+ConditionPathExists=/usr/local/bin/gsos-remove-installer-icon.sh
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/gsos-remove-installer-icon.sh
+ExecStartPost=/usr/bin/systemctl disable gsos-post-install-cleanup.service
+
+[Install]
+WantedBy=multi-user.target
+GSOS_CLEAN_UNIT
+
+# ---------- Low-end RAM swap via zram-generator ----------
+cat > "$A/etc/systemd/zram-generator.conf" <<'GSOS_ZRAM'
+[zram0]
+zram-size = min(ram / 2, 4096)
+compression-algorithm = zstd
+swap-priority = 100
+GSOS_ZRAM
 
 # ---------- 1. Swirl KWin effect (One UI LockStar-inspired open & close) ----------
 cat > "$A/usr/share/kwin/effects/gsos_swirl/metadata.json" <<'GSOS_SWIRL_META'
@@ -121,8 +172,8 @@ gsos_swirlEnabled=true
 scaleEnabled=false
 glideEnabled=false
 magiclampEnabled=false
-blurEnabled=true
-contrastEnabled=true
+blurEnabled=false
+contrastEnabled=false
 
 [Compositing]
 LatencyPolicy=Low
@@ -262,7 +313,7 @@ Switch One Desktop to the Right=none,none,Switch One Desktop to the Right
 GSOS_SHORTCUTS
 cp "$A/etc/xdg/kglobalshortcutsrc" "$A/etc/skel/.config/kglobalshortcutsrc"
 
-# ---------- 5. Bootloader silent flags & <2GB zstd-22 compression ----------
+# ---------- 5. Bootloader silent flags & standard zstd compression ----------
 SILENT_FLAGS="quiet splash loglevel=3 rd.udev.log_level=3 vt.global_cursor_default=0 nowatchdog"
 for cfg in "$P"/syslinux/*.cfg "$P"/efiboot/loader/entries/*.conf "$P"/grub/grub.cfg; do
   if [ -f "$cfg" ]; then
@@ -274,9 +325,9 @@ done
 
 if [ -f "$P/profiledef.sh" ]; then
   if grep -q "^airootfs_image_tool_options=" "$P/profiledef.sh"; then
-    sed -i "s|^airootfs_image_tool_options=.*|airootfs_image_tool_options=('-comp' 'zstd' '-Xcompression-level' '22' '-b' '1M')|" "$P/profiledef.sh"
+    sed -i "s|^airootfs_image_tool_options=.*|airootfs_image_tool_options=('-comp' 'zstd' '-b' '1M')|" "$P/profiledef.sh"
   else
-    printf "\nairootfs_image_tool_options=('-comp' 'zstd' '-Xcompression-level' '22' '-b' '1M')\n" >> "$P/profiledef.sh"
+    printf "\nairootfs_image_tool_options=('-comp' 'zstd' '-b' '1M')\n" >> "$P/profiledef.sh"
   fi
 fi
 
@@ -305,6 +356,10 @@ if command -v plymouth-set-default-theme >/dev/null 2>&1; then
   plymouth-set-default-theme gsos || true
 fi
 
+if command -v systemctl >/dev/null 2>&1 && [ -f /etc/systemd/system/gsos-post-install-cleanup.service ]; then
+  systemctl enable gsos-post-install-cleanup.service 2>/dev/null || true
+fi
+
 for cal_dir in /etc/calamares /usr/share/calamares; do
   if [ -d "$cal_dir" ]; then
     grep -rl "Fancy GNU/Linux" "$cal_dir" 2>/dev/null \
@@ -322,6 +377,12 @@ if [ -f /etc/calamares/settings.conf ]; then
   sed -i 's/branding:[[:space:]]*.*/branding: gsos/' /etc/calamares/settings.conf || true
   find /etc/calamares/branding/gsos -type f \( -name '*.desc' -o -name '*.conf' -o -name '*.qml' \) \
     -exec sed -i 's/Fancy GNU\/Linux[^"'\'']*/GSOS/g; s/\bArch Linux\b/GSOS/g' {} + || true
+fi
+
+if [ -f /etc/calamares/modules/shellprocess.conf ]; then
+  if ! grep -q "gsos-remove-installer-icon.sh" /etc/calamares/modules/shellprocess.conf; then
+    printf '\n    - command: "/usr/local/bin/gsos-remove-installer-icon.sh"\n      timeout: 30\n' >> /etc/calamares/modules/shellprocess.conf
+  fi
 fi
 
 declare -A GSOS_APP_RENAMES=(
@@ -345,7 +406,8 @@ rm -f \
   /etc/xdg/autostart/*gsos*update*.desktop \
   /etc/xdg/autostart/*update*app*.desktop \
   /usr/local/bin/*gsos*update* \
-  /usr/local/bin/gsos-updater
+  /usr/local/bin/gsos-updater \
+  /usr/local/bin/*gsos*store*
 
 gtk-update-icon-cache -f -t /usr/share/icons/hicolor || true
 kbuildsycoca6 --noincremental || true
