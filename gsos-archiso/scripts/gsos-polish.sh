@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # GSOS final polish bundle: swirl window animation, clean GSOS logo boot/shutdown,
 # no post-login splash, distinct icons, clean About GSOS, GSOS app names, Calamares &
-# GRUB GSOS branding, screenshot shortcuts, function keys, and <2GB ISO compression/trimming.
+# GRUB GSOS branding, screenshot shortcuts, function keys, update app cleanup, and
+# <2GB ISO compression/trimming.
 # Called with $P (archiso profile) and $A ($P/airootfs) set. Runs after gsos-update.sh.
 set -u
 : "${P:?P not set}" "${A:?A not set}"
@@ -10,6 +11,20 @@ echo "[gsos-polish] start"
 for pkg in spectacle kglobalaccel kinfocenter; do
   grep -qx "$pkg" "$P/packages.x86_64" || printf '\n%s\n' "$pkg" >> "$P/packages.x86_64"
 done
+
+# ---------- Remove broken Update app (profile & airootfs) ----------
+if [ -f "$P/packages.x86_64" ]; then
+  sed -i -E '/^(gsos-update|update-manager|plasma-discover)$/d' "$P/packages.x86_64"
+fi
+
+rm -f \
+  "$A"/usr/share/applications/*gsos*update*.desktop \
+  "$A"/usr/share/applications/*update*app*.desktop \
+  "$A"/etc/xdg/autostart/*gsos*update*.desktop \
+  "$A"/etc/xdg/autostart/*update*app*.desktop \
+  "$A"/etc/skel/.config/autostart/*gsos*update*.desktop \
+  "$A"/usr/local/bin/*gsos*update* \
+  "$A"/usr/local/bin/gsos-updater
 
 mkdir -p \
   "$A/etc/default" \
@@ -323,6 +338,14 @@ for app_file in "${!GSOS_APP_RENAMES[@]}"; do
     sed -i "s|^Name=.*|Name=${GSOS_APP_RENAMES[$app_file]}|" "/usr/share/applications/$app_file"
   fi
 done
+
+rm -f \
+  /usr/share/applications/*gsos*update*.desktop \
+  /usr/share/applications/*update*app*.desktop \
+  /etc/xdg/autostart/*gsos*update*.desktop \
+  /etc/xdg/autostart/*update*app*.desktop \
+  /usr/local/bin/*gsos*update* \
+  /usr/local/bin/gsos-updater
 
 gtk-update-icon-cache -f -t /usr/share/icons/hicolor || true
 kbuildsycoca6 --noincremental || true
