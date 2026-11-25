@@ -137,6 +137,11 @@ jobs:
             -exec sed -i 's/\r$//' {} +
           sed -i 's/\r$//' "$P/packages.x86_64"
 
+          # Ensure required Plymouth, Qt6, and Spectacle packages are present
+          for pkg in plymouth qt6-declarative qt6-5compat spectacle kglobalaccel; do
+            grep -qx "$pkg" "$P/packages.x86_64" || printf '\n%s\n' "$pkg" >> "$P/packages.x86_64"
+          done
+
           # linux-zen kernel (Waydroid needs binder)
           rm -f "$A/etc/mkinitcpio.d/linux.preset"
           grep -rl 'vmlinuz-linux\|initramfs-linux' "$P/syslinux" "$P/grub" "$P/efiboot" 2>/dev/null \
@@ -174,6 +179,38 @@ jobs:
           run_gsos_script "gsos-boot.sh"
           run_gsos_script "gsos-identity-size.sh"
           run_gsos_script "gsos-polish.sh"
+
+          # Ensure SDDM gsos-dark, lockscreen, and silent kernel flags are present
+          mkdir -p "$A/etc/sddm.conf.d" "$A/etc/xdg" "$A/etc/skel/.config"
+          if [ ! -f "$A/etc/sddm.conf.d/gsos.conf" ]; then
+            cat > "$A/etc/sddm.conf.d/gsos.conf" <<'GSOS_SDDM_FALLBACK'
+          [Theme]
+          Current=gsos-dark
+          CursorTheme=breeze_cursors
+
+          [General]
+          InputMethod=qtvirtualkeyboard
+          GSOS_SDDM_FALLBACK
+          fi
+
+          if [ ! -f "$A/etc/xdg/kscreenlockerrc" ]; then
+            cat > "$A/etc/xdg/kscreenlockerrc" <<'GSOS_LOCK_FALLBACK'
+          [Daemon]
+          Autolock=true
+          LockOnResume=true
+          Timeout=5
+
+          [Greeter]
+          Theme=org.kde.gsos.lockscreen
+          GSOS_LOCK_FALLBACK
+          fi
+
+          SILENT_FLAGS="quiet splash loglevel=3 rd.udev.log_level=3 vt.global_cursor_default=0 nowatchdog"
+          for cfg in "$P"/syslinux/*.cfg "$P"/efiboot/loader/entries/*.conf "$P"/grub/grub.cfg; do
+            if [ -f "$cfg" ] && ! grep -q "vt.global_cursor_default=0" "$cfg"; then
+              sed -i "s|archisobasedir=|${SILENT_FLAGS} archisobasedir=|g" "$cfg" || true
+            fi
+          done
 
           # Enforce < 2GB zstd-22 1M SquashFS compression after all scripts run
           sed -i "s|^airootfs_image_tool_options=.*|airootfs_image_tool_options=('-comp' 'zstd' '-Xcompression-level' '22' '-b' '1M')|" "$P/profiledef.sh"
