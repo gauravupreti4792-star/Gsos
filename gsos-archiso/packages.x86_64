@@ -61,7 +61,6 @@ plasma-pa
 # ---- KDE Plasma 6 (Wayland + X11 fallback) ----
 plasma-desktop
 plasma-workspace
-plasma-x11-session
 kwin
 systemsettings
 powerdevil
