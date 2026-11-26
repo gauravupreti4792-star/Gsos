@@ -1,4 +1,4 @@
-Name: Build GSOS ISO
+name: Build GSOS ISO
 
 # Run it by hand: GitHub > Actions > "Build GSOS ISO" > Run workflow.
 on:
@@ -11,7 +11,7 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@v4
 
       - name: Free up disk space on the runner
         run: |
@@ -23,7 +23,7 @@ jobs:
 
       - name: Restore cached Calamares build
         id: cache
-        uses: actions/cache/restore@v6
+        uses: actions/cache/restore@v4
         with:
           path: ${{ runner.temp }}/localrepo
           key: gsos-aur-localrepo-v1
@@ -238,13 +238,13 @@ jobs:
 
       - name: Save Calamares build to the cache
         if: success() && steps.cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v6
+        uses: actions/cache/save@v4
         with:
           path: ${{ runner.temp }}/localrepo
           key: gsos-aur-localrepo-v1
 
       - name: Upload the ISO
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v4
         with:
           name: GSOS-iso
           path: |
@@ -256,7 +256,7 @@ jobs:
 
       - name: Upload the build log
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v4
         with:
           name: build-log
           path: ${{ runner.temp }}/out/build.log
