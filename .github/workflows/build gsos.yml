@@ -1,4 +1,4 @@
-name: Build GSOS ISO
+Name: Build GSOS ISO
 
 # Run it by hand: GitHub > Actions > "Build GSOS ISO" > Run workflow.
 on:
@@ -11,7 +11,7 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Free up disk space on the runner
         run: |
@@ -23,7 +23,7 @@ jobs:
 
       - name: Restore cached Calamares build
         id: cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: ${{ runner.temp }}/localrepo
           key: gsos-aur-localrepo-v1
@@ -180,7 +180,7 @@ jobs:
           run_gsos_script "gsos-identity-size.sh"
           run_gsos_script "gsos-polish.sh"
 
-          # Ensure SDDM gsos-dark, lockscreen, and silent kernel flags are present
+          # Ensure SDDM gsos-dark, lockscreen, and visible kernel log flags are present
           mkdir -p "$A/etc/sddm.conf.d" "$A/etc/xdg" "$A/etc/skel/.config"
           if [ ! -f "$A/etc/sddm.conf.d/gsos.conf" ]; then
             cat > "$A/etc/sddm.conf.d/gsos.conf" <<'GSOS_SDDM_FALLBACK'
@@ -205,7 +205,7 @@ jobs:
           GSOS_LOCK_FALLBACK
           fi
 
-          SILENT_FLAGS="quiet splash loglevel=3 rd.udev.log_level=3 vt.global_cursor_default=0 nowatchdog"
+          SILENT_FLAGS="loglevel=3 rd.udev.log_level=3 vt.global_cursor_default=0 nowatchdog"
           for cfg in "$P"/syslinux/*.cfg "$P"/efiboot/loader/entries/*.conf "$P"/grub/grub.cfg; do
             if [ -f "$cfg" ] && ! grep -q "vt.global_cursor_default=0" "$cfg"; then
               sed -i "s|archisobasedir=|${SILENT_FLAGS} archisobasedir=|g" "$cfg" || true
@@ -238,13 +238,13 @@ jobs:
 
       - name: Save Calamares build to the cache
         if: success() && steps.cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: ${{ runner.temp }}/localrepo
           key: gsos-aur-localrepo-v1
 
       - name: Upload the ISO
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: GSOS-iso
           path: |
@@ -256,7 +256,7 @@ jobs:
 
       - name: Upload the build log
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: build-log
           path: ${{ runner.temp }}/out/build.log
