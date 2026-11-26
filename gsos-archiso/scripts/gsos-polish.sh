@@ -314,12 +314,12 @@ Switch One Desktop to the Right=none,none,Switch One Desktop to the Right
 GSOS_SHORTCUTS
 cp "$A/etc/xdg/kglobalshortcutsrc" "$A/etc/skel/.config/kglobalshortcutsrc"
 
-# ---------- 5. Bootloader silent flags & standard zstd compression ----------
-SILENT_FLAGS="quiet splash loglevel=3 rd.udev.log_level=3 vt.global_cursor_default=0 nowatchdog"
+# ---------- 5. Bootloader diagnostic flags & standard zstd compression ----------
+BOOT_FLAGS="loglevel=3 rd.udev.log_level=3 vt.global_cursor_default=0 nowatchdog"
 for cfg in "$P"/syslinux/*.cfg "$P"/efiboot/loader/entries/*.conf "$P"/grub/grub.cfg; do
   if [ -f "$cfg" ]; then
     sed -i -E "s/\b(quiet|splash|loglevel=[0-9]+|rd\.systemd\.show_status=[^ ]+|systemd\.show_status=[^ ]+|rd\.udev\.log_level=[0-9]+|udev\.log_level=[0-9]+|vt\.global_cursor_default=[0-9]+|nowatchdog)\b//g" "$cfg"
-    sed -i "s|archisobasedir=|${SILENT_FLAGS} archisobasedir=|g" "$cfg"
+    sed -i "s|archisobasedir=|${BOOT_FLAGS} archisobasedir=|g" "$cfg"
     sed -i 's#Fancy GNU/Linux[^"'\'']*#GSOS#g; s#\bArch Linux\b#GSOS#g' "$cfg" || true
   fi
 done
@@ -349,7 +349,7 @@ if [ -f /etc/default/grub ]; then
     printf '\nGRUB_DISTRIBUTOR="GSOS"\n' >> /etc/default/grub
   fi
   if grep -q '^GRUB_CMDLINE_LINUX_DEFAULT=' /etc/default/grub; then
-    sed -i 's/^GRUB_CMDLINE_LINUX_DEFAULT=.*/GRUB_CMDLINE_LINUX_DEFAULT="quiet splash loglevel=3 rd.udev.log_level=3 vt.global_cursor_default=0 nowatchdog"/' /etc/default/grub
+    sed -i 's/^GRUB_CMDLINE_LINUX_DEFAULT=.*/GRUB_CMDLINE_LINUX_DEFAULT="loglevel=3 rd.udev.log_level=3 vt.global_cursor_default=0 nowatchdog"/' /etc/default/grub
   fi
 fi
 
@@ -378,12 +378,6 @@ if [ -f /etc/calamares/settings.conf ]; then
   sed -i 's/branding:[[:space:]]*.*/branding: gsos/' /etc/calamares/settings.conf || true
   find /etc/calamares/branding/gsos -type f \( -name '*.desc' -o -name '*.conf' -o -name '*.qml' \) \
     -exec sed -i 's#Fancy GNU/Linux[^"'\'']*#GSOS#g; s#\bArch Linux\b#GSOS#g' {} + || true
-fi
-
-if [ -f /etc/calamares/modules/shellprocess.conf ]; then
-  if ! grep -q "gsos-remove-installer-icon.sh" /etc/calamares/modules/shellprocess.conf; then
-    printf '\n    - command: "/usr/local/bin/gsos-remove-installer-icon.sh"\n      timeout: 30\n' >> /etc/calamares/modules/shellprocess.conf
-  fi
 fi
 
 declare -A GSOS_APP_RENAMES=(
