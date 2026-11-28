@@ -51,28 +51,3 @@ A custom PyQt6 application manager built for browsing, searching, and installing
 ### Live ISO to Installed System
 * On the **live ISO**, first-login scripts prepare the session—including Flathub setup, performance profile hooks, panel/wallpaper setup, and launching Calamares.
 * During **installation**, Calamares branding and `shellprocess-gsos-prep.conf` handle post-install chroot steps so the installed system boots cleanly as a standalone GSOS setup.
-
----
-
-## Repository Structure
-
-```text
-├── .github/
-│   └── workflows/
-│       └── build gsos.yml          # GitHub Actions workflow ("Build GSOS ISO")
-├── gsos-archiso/
-│   ├── airootfs/                   # Live filesystem overlay (etc, root, usr)
-│   ├── scripts/
-│   │   └── gsos-theme.sh           # Main theme, apps, autostart, and branding bundle script
-│   ├── BUILD_GSOS.md               # Build documentation and notes
-│   └── packages.x86_64             # Archiso package list
-├── yours/
-│   ├── gsos-profile-switcher       # Performance profile utility
-│   ├── gsos-theme-installer        # Theme installer script
-│   └── metadata.json               # Custom metadata
-├── 1795178828224.png               # 1. Desktop screenshot
-├── 1795178832022.jpg               # 2. Application launcher screenshot
-├── 1795178814912.png               # 3. GSOS Store screenshot
-├── BUILD_GSOS.md
-├── LICENSE
-└── README.md
